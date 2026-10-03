@@ -1,0 +1,6 @@
+{
+  "name": "World News",
+  "description": "A credible 24/7 multilingual international digital newsroom serving readers in Arabic, English, German, Spanish, and French with real-time global reporting, rich video broadcasts, and verified archival coverage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
