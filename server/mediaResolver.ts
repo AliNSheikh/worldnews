@@ -275,10 +275,10 @@ export async function resolveOrGenerateArticleImage(params: {
 
   return {
     image: bestPhoto.url,
-    imageAlt: `Editorial report coverage: ${title}`,
-    imageCredit: bestPhoto.credit,
-    imageLicense: 'Editorial wire press pool license',
-    imageProvenance: 'Curated high-resolution photojournalism archive',
+    imageAlt: `Illustrative image for: ${title}`,
+    imageCredit: 'Illustrative image via Unsplash',
+    imageLicense: 'Unsplash License',
+    imageProvenance: 'Illustrative fallback image; not the original source article photograph',
     generationMethod: 'relevant_search',
   };
 }
