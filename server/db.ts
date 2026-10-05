@@ -9,6 +9,7 @@ import {
 } from '../src/data/initialData';
 import { sanitizeBoldFormatting } from './gemini';
 import { createArchiveSnapshot } from './officialMediaAndArchive';
+import { isPersistenceConfigured, persistence } from './persistence';
 
 function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
   return rawArticles.map((art) => {
@@ -54,6 +55,65 @@ class NewsroomDatabase {
 
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
+  private readyPromise: Promise<void> | null = null;
+  private pendingWrites = new Set<Promise<unknown>>();
+
+  public async ready(): Promise<void> {
+    if (!this.readyPromise) {
+      this.readyPromise = this.hydrateFromPersistence();
+    }
+    await this.readyPromise;
+  }
+
+  private async hydrateFromPersistence(): Promise<void> {
+    if (!isPersistenceConfigured()) {
+      console.info('[World News DB] Supabase is not configured; using development seed data in memory.');
+      return;
+    }
+
+    const snapshot = await persistence.loadSnapshot();
+
+    if (snapshot.articles.length > 0) {
+      this.articles = cleanArticlesBoldFormatting(snapshot.articles);
+    }
+    if (snapshot.categories.length > 0) {
+      this.categories = snapshot.categories;
+    }
+    if (snapshot.sources.length > 0) {
+      this.sources = snapshot.sources;
+    }
+    if (snapshot.comments.length > 0) {
+      this.comments = snapshot.comments;
+    }
+    if (snapshot.logs.length > 0) {
+      this.logs = snapshot.logs;
+    }
+    if (snapshot.settings) {
+      this.settings = snapshot.settings;
+    }
+
+    console.info(
+      `[World News DB] Hydrated persistent newsroom state: ${this.articles.length} articles, ${this.sources.length} sources.`
+    );
+  }
+
+  private queueWrite(write: Promise<unknown>): void {
+    let tracked: Promise<unknown>;
+    tracked = write
+      .catch((error) => {
+        console.error('[World News DB] Persistence write failed:', error);
+      })
+      .finally(() => {
+        this.pendingWrites.delete(tracked);
+      });
+
+    this.pendingWrites.add(tracked);
+  }
+
+  public async flush(): Promise<void> {
+    if (this.pendingWrites.size === 0) return;
+    await Promise.allSettled([...this.pendingWrites]);
+  }
 
   // Articles
   public getArticles(filters?: { category?: string; status?: string; search?: string }): Article[] {
@@ -94,6 +154,7 @@ class NewsroomDatabase {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
     this.articles.unshift(article);
+    this.queueWrite(persistence.upsertArticle(article));
     return article;
   }
 
@@ -107,19 +168,23 @@ class NewsroomDatabase {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    this.queueWrite(persistence.upsertArticle(this.articles[idx]));
     return this.articles[idx];
   }
 
   public deleteArticle(id: string): boolean {
     const initialLen = this.articles.length;
     this.articles = this.articles.filter((a) => a.id !== id);
-    return this.articles.length < initialLen;
+    const deleted = this.articles.length < initialLen;
+    if (deleted) this.queueWrite(persistence.deleteArticle(id));
+    return deleted;
   }
 
   public incrementViews(id: string): number {
     const article = this.articles.find((a) => a.id === id);
     if (article) {
       article.views = (article.views || 0) + 1;
+      this.queueWrite(persistence.upsertArticle(article));
       return article.views;
     }
     return 0;
@@ -172,6 +237,7 @@ class NewsroomDatabase {
     };
 
     this.comments.unshift(newComment);
+    this.queueWrite(persistence.upsertComment(newComment));
     return newComment;
   }
 
@@ -181,6 +247,7 @@ class NewsroomDatabase {
       throw new Error('Comment not found');
     }
     comment.moderationStatus = status;
+    this.queueWrite(persistence.upsertComment(comment));
     return comment;
   }
 
@@ -193,6 +260,7 @@ class NewsroomDatabase {
     const idx = this.sources.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error('Source not found');
     this.sources[idx] = { ...this.sources[idx], ...updates };
+    this.queueWrite(persistence.upsertSource(this.sources[idx]));
     return this.sources[idx];
   }
 
@@ -202,13 +270,16 @@ class NewsroomDatabase {
       id: `src-${Date.now()}`,
     };
     this.sources.push(newSource);
+    this.queueWrite(persistence.upsertSource(newSource));
     return newSource;
   }
 
   public deleteSource(id: string): boolean {
     const initialLen = this.sources.length;
     this.sources = this.sources.filter((s) => s.id !== id);
-    return this.sources.length < initialLen;
+    const deleted = this.sources.length < initialLen;
+    if (deleted) this.queueWrite(persistence.deleteSource(id));
+    return deleted;
   }
 
   // Categories
@@ -220,6 +291,7 @@ class NewsroomDatabase {
     const idx = this.categories.findIndex((c) => c.id === id);
     if (idx === -1) throw new Error('Category not found');
     this.categories[idx] = { ...this.categories[idx], ...updates };
+    this.queueWrite(persistence.upsertCategory(this.categories[idx]));
     return this.categories[idx];
   }
 
@@ -230,6 +302,7 @@ class NewsroomDatabase {
 
   public updateSettings(updates: Partial<SiteSettings>): SiteSettings {
     this.settings = { ...this.settings, ...updates };
+    this.queueWrite(persistence.upsertSettings(this.settings));
     return this.settings;
   }
 
@@ -241,6 +314,7 @@ class NewsroomDatabase {
     };
     this.logs.unshift(entry);
     if (this.logs.length > 100) this.logs.pop();
+    this.queueWrite(persistence.upsertLog(entry));
     return entry;
   }
 
