@@ -245,7 +245,7 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
         };
       }
     } catch (err) {
-      console.warn('Gemini generateContent error, using fallback template:', err);
+      console.warn('Gemini generateContent error; import will fail safely:', err);
     }
   }
 
