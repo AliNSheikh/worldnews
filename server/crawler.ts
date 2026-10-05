@@ -21,7 +21,7 @@ interface CrawlerState {
 
 const state: CrawlerState = {
   isSchedulerActive: true,
-  intervalMs: 30 * 60 * 1000, // Every 30 minutes as requested
+  intervalMs: 60 * 60 * 1000, // Every hour
   lastRunTime: null,
   nextRunTime: null,
   totalScrapedCount: 0,
@@ -178,28 +178,15 @@ export async function runCrawlerCycle(): Promise<{
           });
         }
       } else {
-        // Search for an un-scraped wire item matching or representing this source
-        const matchingDispatches = TARGET_SITE_DISPATCHES.filter(
-          (d) => d.category === src.category || Math.random() > 0.4
-        );
-        const chosen = matchingDispatches[Math.floor(Math.random() * matchingDispatches.length)] || TARGET_SITE_DISPATCHES[0];
-
-        const verifiedSource = await resolveAuthenticSourceLink({
-          category: chosen.category,
-          originalSource: src.name,
-          title: chosen.topic,
+        // Never invent synthetic dispatches when a real source has no new items.
+        // The next hourly cycle will check the source again.
+        db.updateSource(src.id, {
+          lastImport: new Date().toISOString(),
+          lastError: null,
         });
-
-        if (!state.scrapedUrls.has(verifiedSource.originalUrl) && !db.articles.some((a) => a.originalUrl === verifiedSource.originalUrl)) {
-          itemsToProcess.push({
-            topic: chosen.topic,
-            targetArticleUrl: verifiedSource.originalUrl,
-            category: chosen.category,
-            byline: 'World News International Bureau',
-            fallbackDescription: chosen.description || '',
-          });
-        }
       }
+
+
 
       for (const item of itemsToProcess) {
         if (state.scrapedUrls.has(item.targetArticleUrl) || db.articles.some((a) => a.originalUrl === item.targetArticleUrl)) {
@@ -208,22 +195,27 @@ export async function runCrawlerCycle(): Promise<{
 
         // Extract official metadata and official media from the live webpage
         const officialMeta = await extractOfficialPageMetadata(item.targetArticleUrl);
+        const factualHeadline = officialMeta.title || item.topic;
         const effectiveDescription = officialMeta.description || item.fallbackDescription || '';
+        const factualBody = officialMeta.articleBody || '';
         const realImage = officialMeta.imageUrl || item.feedImage || null;
 
+        // Ground the rewrite in the actual fetched article body. If the publisher blocks
+        // body extraction, the AI is constrained to the verified headline + description.
         const draft = await generateEditorialDraft(
-          item.topic,
+          factualHeadline,
           item.category,
           src.name,
           item.targetArticleUrl,
-          effectiveDescription
+          effectiveDescription,
+          factualBody
         );
 
         const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
         const finalImage = realImage || photoConfig.url;
 
         const archiveSnapshot = createArchiveSnapshot({
-          headline: item.topic,
+          headline: factualHeadline,
           description: effectiveDescription,
           sourceUrl: item.targetArticleUrl,
           sourceAgency: src.name,
@@ -277,7 +269,7 @@ export async function runCrawlerCycle(): Promise<{
 
     db.addLog({
       jobType: 'rss_sync',
-      source: 'Hourly Automated AI Wire Retrieval Engine',
+      source: 'Hourly Automated News Retrieval Engine',
       startedAt,
       completedAt: state.lastRunTime,
       status: 'success',
@@ -295,7 +287,7 @@ export async function runCrawlerCycle(): Promise<{
     const errorMsg = err instanceof Error ? err.message : String(err);
     db.addLog({
       jobType: 'rss_sync',
-      source: 'Hourly Automated AI Wire Retrieval Engine',
+      source: 'Hourly Automated News Retrieval Engine',
       startedAt,
       completedAt: new Date().toISOString(),
       status: 'failed',
