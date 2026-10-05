@@ -360,7 +360,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     res.json(db.getLogs());
   });
 
-  // Vercel Cron: exactly once per hour according to vercel.json.
+  // Vercel Cron: scheduled according to vercel.json.
   // When CRON_SECRET is configured, Vercel sends it as a Bearer token.
   app.get('/api/cron/hourly', async (req, res) => {
     try {
@@ -969,7 +969,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   });
 
   // Traditional setInterval is only useful for local/long-lived servers.
-  // Vercel production uses the authenticated Cron route above.
+  // Vercel production uses the authenticated Cron route above; cadence depends on plan/config.
   if (!process.env.VERCEL) {
     startHourlyCrawlerScheduler();
   }
