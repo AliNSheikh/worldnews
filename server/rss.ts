@@ -390,6 +390,34 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         // Crawl and extract official webpage metadata (official description, official real image, video)
         const officialMeta = await extractOfficialPageMetadata(targetUrl);
         const finalDescription = officialMeta.description || itemDescription || targetTitle;
+        const feedBodyCandidate = (
+          feedItem.contentEncoded ||
+          feedItem['content:encoded'] ||
+          feedItem.content ||
+          feedItem.description ||
+          ''
+        )
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const sourceArticleText = (
+          officialMeta.articleText ||
+          feedBodyCandidate ||
+          finalDescription
+        ).trim();
+
+        // Accuracy gate: do not ask the model to manufacture a full article from a headline alone.
+        if (sourceArticleText.length < 80) {
+          db.updateSource(src.id, {
+            lastError: `Skipped "${targetTitle}" because no sufficiently detailed source text could be extracted.`,
+          });
+          continue;
+        }
 
         // Detect video presence in the feed item or official page
         let videoCandidate: string | null = officialMeta.videoUrl || null;
@@ -461,7 +489,8 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           targetCategory,
           src.name,
           targetUrl,
-          finalDescription
+          finalDescription,
+          sourceArticleText
         );
 
         // Create permanent digital archive snapshot for the article
@@ -485,7 +514,11 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: 'published',
+          status: Object.values(draft.translations).every(
+            (translation) => translation.translationStatus === 'complete'
+          )
+            ? 'published'
+            : 'review',
           isBreaking: totalImported === 0,
           isPinned: false,
           priority: 5,
@@ -532,6 +565,6 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
   return {
     success: true,
     count: totalImported,
-    logMessage: `RSS import complete. ${totalImported} fresh dispatches (under 24h) ingested with media & video handling.`,
+    logMessage: `RSS import complete. ${totalImported} fresh articles ingested from verified feed/page content with grounded multilingual SEO metadata.`,
   };
 }
