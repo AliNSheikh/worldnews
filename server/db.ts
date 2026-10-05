@@ -102,6 +102,41 @@ class NewsroomDatabase {
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
 
+  private ensureUniqueArticleSlugs(article: Article, excludeArticleId?: string): Article {
+    const cloned: Article = {
+      ...article,
+      translations: { ...article.translations },
+    };
+
+    const reserved = new Set(
+      this.articles
+        .filter((existing) => existing.id !== excludeArticleId)
+        .flatMap((existing) => Object.values(existing.translations).map((translation) => translation.slug))
+    );
+
+    for (const lang of Object.keys(cloned.translations) as Array<keyof Article['translations']>) {
+      const translation = cloned.translations[lang];
+      if (!translation) continue;
+
+      const base = (translation.slug || `article-${Date.now()}`)
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || `article-${Date.now()}`;
+
+      let candidate = base;
+      let suffix = 2;
+      while (reserved.has(candidate)) {
+        candidate = `${base}-${suffix++}`;
+      }
+
+      cloned.translations[lang] = { ...translation, slug: candidate };
+      reserved.add(candidate);
+    }
+
+    return cloned;
+  }
+
   // Articles
   public getArticles(filters?: { category?: string; status?: string; search?: string }): Article[] {
     let list = [...this.articles];
@@ -140,9 +175,11 @@ class NewsroomDatabase {
     if (article.originalUrl && this.articles.some((a) => a.originalUrl === article.originalUrl)) {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
-    this.articles.unshift(article);
-    this.persist('newsroom_articles', article.id, article, { published_at: article.publishedAt });
-    return article;
+
+    const normalizedArticle = this.ensureUniqueArticleSlugs(article);
+    this.articles.unshift(normalizedArticle);
+    this.persist('newsroom_articles', normalizedArticle.id, normalizedArticle, { published_at: normalizedArticle.publishedAt });
+    return normalizedArticle;
   }
 
   public updateArticle(id: string, updates: Partial<Article>): Article {
@@ -150,11 +187,12 @@ class NewsroomDatabase {
     if (idx === -1) {
       throw new Error(`Article with id '${id}' not found.`);
     }
-    this.articles[idx] = {
+    const merged = {
       ...this.articles[idx],
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    this.articles[idx] = this.ensureUniqueArticleSlugs(merged, id);
     this.persist('newsroom_articles', this.articles[idx].id, this.articles[idx], { published_at: this.articles[idx].publishedAt });
     return this.articles[idx];
   }
