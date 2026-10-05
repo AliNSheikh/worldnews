@@ -143,7 +143,7 @@ export const HeroSlider: React.FC<HeroSliderProps> = ({
           <div className="max-w-3xl space-y-3">
             {/* Meta Row */}
             <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-slate-300 font-medium">
-              <span className="text-sky-400 font-semibold">{currentSlide.originalSource}</span>
+              <span className="text-sky-400 font-semibold">World News</span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />

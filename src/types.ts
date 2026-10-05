@@ -117,6 +117,16 @@ export interface AutomationLog {
   importedCount: number;
 }
 
+export interface HeroSlide {
+  id: string;
+  headline: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  buttonLabel: string;
+  buttonUrl: string;
+  isActive: boolean;
+}
+
 export interface SiteSettings {
   names: Record<LanguageCode, string>;
   descriptions: Record<LanguageCode, string>;
@@ -145,6 +155,7 @@ export interface SiteSettings {
   editorialStatement: Record<LanguageCode, string>;
   googleSearchConsoleVerification: string;
   googleAnalyticsMeasurementId: string;
+  heroSlides?: HeroSlide[];
 }
 
 export interface SearchFilters {

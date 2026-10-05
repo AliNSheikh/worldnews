@@ -10,6 +10,7 @@ import {
 } from './data/initialData';
 import { Header } from './components/Header';
 import { HeroSlider } from './components/HeroSlider';
+import { PromoHeroSlider } from './components/PromoHeroSlider';
 import { BreakingBar } from './components/BreakingBar';
 import { ArticleCard } from './components/ArticleCard';
 import { TrendingList } from './components/TrendingList';
@@ -376,8 +377,10 @@ export function App() {
         ) : (
           /* FRONT PAGE (HOMEPAGE) */
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-12">
-            {/* Hero Slider: 3 Most Recently Added Articles */}
-            {heroArticles.length > 0 && (
+            {/* Manual promotional slider takes precedence; latest articles are the fallback. */}
+            {settings.heroSlides?.some((slide) => slide.isActive && slide.mediaUrl) ? (
+              <PromoHeroSlider slides={settings.heroSlides} />
+            ) : heroArticles.length > 0 ? (
               <section id="hero-slider-section">
                 <HeroSlider
                   articles={heroArticles}
@@ -386,7 +389,7 @@ export function App() {
                   onSelectCategory={handleSelectCategory}
                 />
               </section>
-            )}
+            ) : null}
 
             {/* Lead Grid Section */}
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">

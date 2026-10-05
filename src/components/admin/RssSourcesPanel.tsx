@@ -26,7 +26,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
   const [newRssUrl, setNewRssUrl] = useState('');
   const [newCategory, setNewCategory] = useState('world');
   const [newTrustLevel, setNewTrustLevel] = useState<NewsSource['trustLevel']>('verified');
-  const [newInterval, setNewInterval] = useState(30);
+  const [newInterval, setNewInterval] = useState(60);
 
   const handleTestSource = async (id: string) => {
     try {
@@ -133,6 +133,30 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
       onRefreshSources();
     } catch (err) {
       console.error('Failed to delete source:', err);
+    }
+  };
+
+  const handleEditSource = async (source: NewsSource) => {
+    const name = window.prompt('Source name', source.name);
+    if (name === null) return;
+    const rssUrl = window.prompt('RSS / Atom feed URL', source.rssUrl);
+    if (rssUrl === null) return;
+    const category = window.prompt('Category slug', source.category);
+    if (category === null) return;
+
+    try {
+      await fetch(`/api/sources/${source.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim() || source.name,
+          rssUrl: rssUrl.trim() || source.rssUrl,
+          category: category.trim() || source.category,
+        }),
+      });
+      onRefreshSources();
+    } catch (err) {
+      console.error('Failed to edit source:', err);
     }
   };
 
@@ -374,6 +398,13 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
                       className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                     >
                       {isImporting ? 'Ingesting...' : 'Import Now'}
+                    </button>
+
+                    <button
+                      onClick={() => handleEditSource(src)}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Edit
                     </button>
 
                     <button

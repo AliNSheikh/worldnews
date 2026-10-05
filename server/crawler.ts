@@ -1,7 +1,6 @@
 import { db } from './db';
 import { generateEditorialDraft } from './gemini';
 import { Article } from '../src/types';
-import { resolveAuthenticSourceLink } from './sourceVerification';
 import { fetchAndParseRssFeed } from './rss';
 import {
   extractOfficialPageMetadata,
@@ -21,7 +20,7 @@ interface CrawlerState {
 
 const state: CrawlerState = {
   isSchedulerActive: true,
-  intervalMs: 30 * 60 * 1000, // Every 30 minutes as requested
+  intervalMs: 60 * 60 * 1000, // Every hour
   lastRunTime: null,
   nextRunTime: null,
   totalScrapedCount: 0,
@@ -69,58 +68,6 @@ const PRESS_PHOTOS: Record<string, { url: string; credit: string }> = {
     credit: 'Defense Intelligence Monitor',
   },
 };
-
-// Wire lead seeds that simulate live breaking dispatches from target sites
-const TARGET_SITE_DISPATCHES = [
-  {
-    topic: 'International Maritime Organization Adopts Zero-Emission Navigation Corridor Treaty',
-    description: 'Delegates from 175 member nations approved binding maritime decarbonization corridors, mandating sustainable e-fuels and zero-emission port bunkering infrastructure across key trade arteries by 2030.',
-    category: 'climate',
-    sourceDomain: 'reuters.com',
-    sourceName: 'Reuters Global Wire',
-    byline: 'Reuters Marine Desk & World News Staff',
-  },
-  {
-    topic: 'Central Banks Establish Cross-Border Quantum-Resilient Payment Interoperability Standard',
-    description: 'The Bank for International Settlements and central bank governors finalized unified post-quantum cryptographic primitives to secure wholesale cross-border currency settlements against quantum computing threats.',
-    category: 'economy',
-    sourceDomain: 'bloomberg.com',
-    sourceName: 'Bloomberg Financial Wire',
-    byline: 'Bloomberg Monetary Affairs & World News Bureau',
-  },
-  {
-    topic: 'Global Satellite Consortium Deploys Real-Time Planetary Disaster Early-Warning Array',
-    description: 'A coalition of European and international aerospace agencies successfully deployed six synthetic aperture radar satellites to provide continuous sub-millimeter crustal monitoring for earthquake and flood zones.',
-    category: 'technology',
-    sourceDomain: 'apnews.com',
-    sourceName: 'Associated Press Wire',
-    byline: 'AP Aerospace Desk / Staff Editors',
-  },
-  {
-    topic: 'UN High Commissioner Concludes Multilateral Food Security Compact for Drought-Affected Basins',
-    description: 'A 4.2 billion dollar resilience package was ratified in Geneva, establishing strategic cereal reserves and solar-powered groundwater retrieval across the Horn of Africa and Sahelian river basins.',
-    category: 'world',
-    sourceDomain: 'aljazeera.com',
-    sourceName: 'Al Jazeera International',
-    byline: 'Al Jazeera Diplomatic Wire & Editors',
-  },
-  {
-    topic: 'World Health Assembly Finalizes Emergency Response Guidelines for Vector-Borne Pathogens',
-    description: 'Health ministers endorsed accelerated multilateral vaccine distribution protocols, genomic sequencing sharing frameworks, and localized clinical manufacturing hubs across five continents.',
-    category: 'health',
-    sourceDomain: 'bbc.com',
-    sourceName: 'BBC World Service Wire',
-    byline: 'BBC Health Sciences Bureau',
-  },
-  {
-    topic: 'European Clean Energy Grid Completes Continental High-Voltage Direct Current Synchronous Link',
-    description: 'Transmission operators synchronized the largest subsea and underground HVDC transmission link, enabling 12 gigawatts of North Sea offshore wind power to reach industrial centers in Central and Southern Europe.',
-    category: 'technology',
-    sourceDomain: 'lemonde.fr',
-    sourceName: 'European Press Syndicate',
-    byline: 'Paris Bureau & World News Editorial Desk',
-  },
-];
 
 export async function runCrawlerCycle(): Promise<{
   success: boolean;
@@ -178,28 +125,15 @@ export async function runCrawlerCycle(): Promise<{
           });
         }
       } else {
-        // Search for an un-scraped wire item matching or representing this source
-        const matchingDispatches = TARGET_SITE_DISPATCHES.filter(
-          (d) => d.category === src.category || Math.random() > 0.4
-        );
-        const chosen = matchingDispatches[Math.floor(Math.random() * matchingDispatches.length)] || TARGET_SITE_DISPATCHES[0];
-
-        const verifiedSource = await resolveAuthenticSourceLink({
-          category: chosen.category,
-          originalSource: src.name,
-          title: chosen.topic,
+        // Never invent synthetic dispatches when a real source has no new items.
+        // The next hourly cycle will check the source again.
+        db.updateSource(src.id, {
+          lastImport: new Date().toISOString(),
+          lastError: null,
         });
-
-        if (!state.scrapedUrls.has(verifiedSource.originalUrl) && !db.articles.some((a) => a.originalUrl === verifiedSource.originalUrl)) {
-          itemsToProcess.push({
-            topic: chosen.topic,
-            targetArticleUrl: verifiedSource.originalUrl,
-            category: chosen.category,
-            byline: 'World News International Bureau',
-            fallbackDescription: chosen.description || '',
-          });
-        }
       }
+
+
 
       for (const item of itemsToProcess) {
         if (state.scrapedUrls.has(item.targetArticleUrl) || db.articles.some((a) => a.originalUrl === item.targetArticleUrl)) {
@@ -208,22 +142,27 @@ export async function runCrawlerCycle(): Promise<{
 
         // Extract official metadata and official media from the live webpage
         const officialMeta = await extractOfficialPageMetadata(item.targetArticleUrl);
+        const factualHeadline = officialMeta.title || item.topic;
         const effectiveDescription = officialMeta.description || item.fallbackDescription || '';
+        const factualBody = officialMeta.articleBody || '';
         const realImage = officialMeta.imageUrl || item.feedImage || null;
 
+        // Ground the rewrite in the actual fetched article body. If the publisher blocks
+        // body extraction, the AI is constrained to the verified headline + description.
         const draft = await generateEditorialDraft(
-          item.topic,
+          factualHeadline,
           item.category,
           src.name,
           item.targetArticleUrl,
-          effectiveDescription
+          effectiveDescription,
+          factualBody
         );
 
         const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
         const finalImage = realImage || photoConfig.url;
 
         const archiveSnapshot = createArchiveSnapshot({
-          headline: item.topic,
+          headline: factualHeadline,
           description: effectiveDescription,
           sourceUrl: item.targetArticleUrl,
           sourceAgency: src.name,
@@ -277,7 +216,7 @@ export async function runCrawlerCycle(): Promise<{
 
     db.addLog({
       jobType: 'rss_sync',
-      source: 'Hourly Automated AI Wire Retrieval Engine',
+      source: 'Hourly Automated News Retrieval Engine',
       startedAt,
       completedAt: state.lastRunTime,
       status: 'success',
@@ -295,7 +234,7 @@ export async function runCrawlerCycle(): Promise<{
     const errorMsg = err instanceof Error ? err.message : String(err);
     db.addLog({
       jobType: 'rss_sync',
-      source: 'Hourly Automated AI Wire Retrieval Engine',
+      source: 'Hourly Automated News Retrieval Engine',
       startedAt,
       completedAt: new Date().toISOString(),
       status: 'failed',

@@ -738,7 +738,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 <div className="flex justify-between items-center py-1 border-b border-slate-200">
                   <span className="text-slate-500 font-medium">Originating Wire Agency:</span>
                   <span className="font-semibold text-slate-900">
-                    {article.originalSource}
+                    World News
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">

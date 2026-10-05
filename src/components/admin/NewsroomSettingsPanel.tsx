@@ -17,7 +17,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { SiteSettings, AutomationLog } from '../../types';
+import { SiteSettings, AutomationLog, HeroSlide } from '../../types';
 
 interface NewsroomSettingsPanelProps {
   settings: SiteSettings;
@@ -46,6 +46,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
   // Google Search Console & Google Analytics
   const [gscToken, setGscToken] = useState(settings.googleSearchConsoleVerification || '');
   const [gaId, setGaId] = useState(settings.googleAnalyticsMeasurementId || '');
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(settings.heroSlides || []);
 
   // UI State
   const [saving, setSaving] = useState(false);
@@ -74,6 +75,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
         },
         googleSearchConsoleVerification: gscToken.trim(),
         googleAnalyticsMeasurementId: gaId.trim(),
+        heroSlides,
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
@@ -177,6 +179,92 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Manual Promotional Hero Slider */}
+        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-4">
+          <div>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-indigo-950">
+              Hero Slider / Advertising Campaigns
+            </h4>
+            <p className="text-xs text-indigo-900 mt-1">
+              Active manual slides replace the latest-news hero. If all slides are disabled or removed, the homepage automatically falls back to the newest articles.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {heroSlides.map((slide, index) => (
+              <div key={slide.id} className="bg-white border border-indigo-200 rounded-xl p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  value={slide.headline}
+                  onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, headline: e.target.value } : item))}
+                  placeholder="Hero headline"
+                  className="px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                <input
+                  value={slide.mediaUrl}
+                  onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, mediaUrl: e.target.value } : item))}
+                  placeholder="Image or video URL"
+                  className="px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                <input
+                  value={slide.buttonLabel}
+                  onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, buttonLabel: e.target.value } : item))}
+                  placeholder="Button label"
+                  className="px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                <input
+                  value={slide.buttonUrl}
+                  onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, buttonUrl: e.target.value } : item))}
+                  placeholder="Clickable button URL"
+                  className="px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                <div className="flex items-center gap-4 text-xs">
+                  <select
+                    value={slide.mediaType}
+                    onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, mediaType: e.target.value as 'image' | 'video' } : item))}
+                    className="px-3 py-2 border border-slate-300 rounded-lg bg-white"
+                  >
+                    <option value="image">Image</option>
+                    <option value="video">Video</option>
+                  </select>
+                  <label className="flex items-center gap-2 font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={slide.isActive}
+                      onChange={(e) => setHeroSlides((items) => items.map((item, i) => i === index ? { ...item, isActive: e.target.checked } : item))}
+                    />
+                    Active
+                  </label>
+                </div>
+                <div className="flex md:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setHeroSlides((items) => items.filter((_, i) => i !== index))}
+                    className="px-3 py-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg"
+                  >
+                    Delete Slide
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setHeroSlides((items) => [...items, {
+              id: `hero-${Date.now()}`,
+              headline: '',
+              mediaUrl: '',
+              mediaType: 'image',
+              buttonLabel: 'Learn more',
+              buttonUrl: '',
+              isActive: true,
+            }])}
+            className="px-4 py-2 text-xs font-bold bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg"
+          >
+            Add Hero Slide
+          </button>
         </div>
 
         {/* Contact Details Section */}
