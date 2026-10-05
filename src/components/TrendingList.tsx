@@ -50,8 +50,6 @@ export const TrendingList: React.FC<TrendingListProps> = ({ articles, currentLan
                 </h4>
                 <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
                   <span className="font-mono">{article.views.toLocaleString()} {t.views}</span>
-                  <span>•</span>
-                  <span>{article.originalSource}</span>
                 </div>
               </div>
             </div>
