@@ -28,6 +28,9 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
+  // Hydrate persistent newsroom state before serving requests or starting automation.
+  await db.init();
+
   // Helper for origin determination
   const getOrigin = (req: express.Request) => {
     return process.env.APP_URL || `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
@@ -232,6 +235,27 @@ async function startServer() {
   app.post('/api/automation/run', async (req, res) => {
     const result = await runRssImportJob();
     res.json(result);
+  });
+
+  // External cron-safe hourly ingestion endpoint.
+  // Use this from a reliable scheduler (GitHub Actions, Cloud Scheduler, Render cron, etc.).
+  app.post('/api/cron/hourly', async (req, res) => {
+    const configuredSecret = process.env.CRON_SECRET || '';
+    const suppliedSecret =
+      (req.headers['x-cron-secret'] as string) ||
+      (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+
+    if (!configuredSecret || suppliedSecret !== configuredSecret) {
+      return res.status(401).json({ error: 'Unauthorized cron request' });
+    }
+
+    try {
+      const result = await runCrawlerCycle();
+      res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
   });
 
   // Automated Hourly Crawler Status & Manual Trigger
@@ -796,8 +820,11 @@ async function startServer() {
     }
   });
 
-  // Start the background hourly automated retrieval scheduler
-  startHourlyCrawlerScheduler();
+  // Start the in-process scheduler for long-running hosts.
+  // Serverless deployments should call /api/cron/hourly from an external hourly scheduler.
+  if (db.getSettings().autoIngestEnabled !== false) {
+    startHourlyCrawlerScheduler();
+  }
 
   // ==========================================
   // Vite Integration (Dev Middleware or Dist)
