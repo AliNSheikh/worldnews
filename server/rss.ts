@@ -148,8 +148,6 @@ export function generateSitemapXml(origin: string): string {
       xml += `    <xhtml:link rel="alternate" hreflang="${alt}" href="${origin}/${alt}" />\n`;
     });
     xml += `    <xhtml:link rel="alternate" hreflang="x-default" href="${origin}/en" />\n`;
-    xml += `    <changefreq>hourly</changefreq>\n`;
-    xml += `    <priority>1.0</priority>\n`;
     xml += `  </url>\n`;
   });
 
@@ -161,8 +159,6 @@ export function generateSitemapXml(origin: string): string {
       languages.forEach((alt) => {
         xml += `    <xhtml:link rel="alternate" hreflang="${alt}" href="${origin}/${alt}/category/${cat.slug}" />\n`;
       });
-      xml += `    <changefreq>always</changefreq>\n`;
-      xml += `    <priority>0.8</priority>\n`;
       xml += `  </url>\n`;
     });
   });
@@ -179,8 +175,6 @@ export function generateSitemapXml(origin: string): string {
       });
       xml += `    <xhtml:link rel="alternate" hreflang="x-default" href="${origin}/en/news/${art.category}/${art.translations.en.slug}" />\n`;
       xml += `    <lastmod>${new Date(art.updatedAt || art.publishedAt).toISOString().split('T')[0]}</lastmod>\n`;
-      xml += `    <changefreq>daily</changefreq>\n`;
-      xml += `    <priority>${art.isPinned || art.isBreaking ? '0.9' : '0.7'}</priority>\n`;
       xml += `  </url>\n`;
     });
   });
