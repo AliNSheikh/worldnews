@@ -230,6 +230,8 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
           if (parsed.translations[lang]) {
             parsed.translations[lang].language = lang;
             parsed.translations[lang].translationStatus = 'complete';
+            parsed.translations[lang].tags = (parsed.translations[lang].keywords || []).slice(0, 5);
+            parsed.translations[lang].focusKeyphrase = parsed.translations[lang].keywords?.[0] || '';
             parsed.translations[lang].executiveSummary = sanitizeBoldFormatting(parsed.translations[lang].executiveSummary || '');
             parsed.translations[lang].structuredBody = sanitizeBoldFormatting(parsed.translations[lang].structuredBody || '');
           }
@@ -267,6 +269,8 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
         seoTitle: prompt.slice(0, 70),
         metaDescription: groundedSummary.slice(0, 160),
         keywords: [category],
+        tags: [category],
+        focusKeyphrase: category,
         imageAlt: prompt,
         faq: [],
         translationStatus: 'needs-review',
