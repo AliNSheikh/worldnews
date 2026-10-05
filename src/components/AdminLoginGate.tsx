@@ -20,23 +20,31 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
 
-    // Default newsroom passkey (integration & login details to be finalized by administrator)
-    const validKeys = ['admin2026', 'worldnews_admin', 'editorial_secret'];
+    try {
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password: passcode }),
+      });
+      const payload = await response.json();
 
-    setTimeout(() => {
-      if (validKeys.includes(passcode.trim())) {
-        sessionStorage.setItem('world_news_admin_auth', 'true');
-        onAuthenticated();
-      } else {
-        setError('Invalid editorial passkey. Access denied.');
-        setIsSubmitting(false);
+      if (!response.ok) {
+        throw new Error(payload.error || 'Authentication failed.');
       }
-    }, 300);
+
+      sessionStorage.setItem('world_news_admin_auth', 'true');
+      onAuthenticated();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Authentication failed.';
+      setError(message);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -70,8 +78,7 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
             🔐 Administrator Authentication Notice
           </p>
           <p>
-            Final login authentication & SSO integrations will be configured by your IT desk.
-            For current editorial access, use default passkey: <code className="text-sky-300 font-mono px-1 py-0.5 bg-slate-900 rounded">admin2026</code>
+            Credentials are verified securely by the server. Configure ADMIN_PASSWORD and ADMIN_SESSION_SECRET in your Vercel project environment.
           </p>
         </div>
 
