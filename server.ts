@@ -13,6 +13,7 @@ import {
 } from './server/gemini';
 import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './server/crawler';
 import { Article } from './src/types';
+import { testRemotePersistence } from './server/persistence';
 import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './server/sourceVerification';
 import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './server/mediaResolver';
 import {
@@ -27,6 +28,9 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Hydrate persistent newsroom data before API routes and the hourly crawler start.
+  await db.initializePersistence();
 
   // Helper for origin determination
   const getOrigin = (req: express.Request) => {
@@ -68,7 +72,13 @@ async function startServer() {
       time: new Date().toISOString(),
       articlesCount: db.articles.length,
       categoriesCount: db.categories.length,
+      crawler: getCrawlerStatus(),
     });
+  });
+
+  app.get('/api/database/status', async (req, res) => {
+    const status = await testRemotePersistence();
+    res.status(status.configured && !status.reachable ? 503 : 200).json(status);
   });
 
   // Articles
