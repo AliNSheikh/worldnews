@@ -1,0 +1,24 @@
+name: Hourly News Ingestion
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger protected newsroom crawler
+        env:
+          WORLDNEWS_URL: ${{ secrets.WORLDNEWS_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$WORLDNEWS_URL" || (echo "Missing WORLDNEWS_URL repository secret" && exit 1)
+          test -n "$CRON_SECRET" || (echo "Missing CRON_SECRET repository secret" && exit 1)
+          curl --fail-with-body --show-error --silent \
+            --retry 2 --retry-delay 10 \
+            -X POST "${WORLDNEWS_URL%/}/api/cron/hourly" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json"
