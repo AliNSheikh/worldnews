@@ -191,14 +191,18 @@ export function generateSitemapXml(origin: string): string {
 
 export function generateNewsSitemapXml(origin: string): string {
   // Google News sitemap includes articles published in the last 48 hours
-  const articles = db.getArticles({ status: 'published' });
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+  const articles = db
+    .getArticles({ status: 'published' })
+    .filter((article) => new Date(article.publishedAt).getTime() >= cutoff)
+    .slice(0, 1000);
   const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   const settings = db.getSettings();
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n`;
 
-  articles.slice(0, 100).forEach((art) => {
+  articles.forEach((art) => {
     languages.forEach((lang) => {
       const trans = art.translations[lang] || art.translations.en;
       const pubName = settings.names[lang] || 'World News';
