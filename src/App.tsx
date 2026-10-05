@@ -10,6 +10,8 @@ import {
 } from './data/initialData';
 import { Header } from './components/Header';
 import { HeroSlider } from './components/HeroSlider';
+import { PromotionalHero } from './components/PromotionalHero';
+import { AdSlot } from './components/AdSlot';
 import { BreakingBar } from './components/BreakingBar';
 import { ArticleCard } from './components/ArticleCard';
 import { TrendingList } from './components/TrendingList';
@@ -286,6 +288,11 @@ export function App() {
       .slice(0, 3);
   }, [publishedArticles]);
 
+  const promotionalHeroSlides = useMemo(
+    () => (settings.heroSlides || []).filter((slide) => slide.enabled && slide.mediaUrl),
+    [settings.heroSlides]
+  );
+
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
 
   // Render CMS newsroom view (protected by AdminLoginGate)
@@ -376,17 +383,21 @@ export function App() {
         ) : (
           /* FRONT PAGE (HOMEPAGE) */
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-12">
-            {/* Hero Slider: 3 Most Recently Added Articles */}
-            {heroArticles.length > 0 && (
-              <section id="hero-slider-section">
+            {/* Manual promotional Hero Slider; latest stories are the automatic fallback. */}
+            <section id="hero-slider-section">
+              {promotionalHeroSlides.length > 0 ? (
+                <PromotionalHero slides={promotionalHeroSlides} currentLang={currentLang} />
+              ) : heroArticles.length > 0 ? (
                 <HeroSlider
                   articles={heroArticles}
                   currentLang={currentLang}
                   onSelectArticle={handleSelectArticle}
                   onSelectCategory={handleSelectCategory}
                 />
-              </section>
-            )}
+              ) : null}
+            </section>
+
+            <AdSlot placement="homepage-after-hero" />
 
             {/* Lead Grid Section */}
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -454,6 +465,8 @@ export function App() {
                 </div>
               </aside>
             </section>
+
+            <AdSlot placement="homepage-mid-feed" />
 
             {/* In-depth Category Showcases */}
             {categories
