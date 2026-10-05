@@ -31,6 +31,7 @@ export interface ArticleTranslation {
   seoTitle: string;
   metaDescription: string;
   keywords: string[];
+  tags?: string[];
   imageAlt: string;
   faq: FAQItem[];
   translationStatus: 'complete' | 'draft' | 'needs-review';
