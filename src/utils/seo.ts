@@ -128,7 +128,16 @@ export function updatePageSEO(options: {
   const defaultLink = document.createElement('link');
   defaultLink.setAttribute('rel', 'alternate');
   defaultLink.setAttribute('hreflang', 'x-default');
-  defaultLink.setAttribute('href', `${origin}/en`);
+  if (article) {
+    defaultLink.setAttribute(
+      'href',
+      `${origin}/en/news/${article.category}/${article.translations.en?.slug || article.translations[lang].slug}`
+    );
+  } else if (category) {
+    defaultLink.setAttribute('href', `${origin}/en/category/${category.slug}`);
+  } else {
+    defaultLink.setAttribute('href', `${origin}/en`);
+  }
   document.head.appendChild(defaultLink);
 
   // Structured Data (JSON-LD)
@@ -187,6 +196,10 @@ export function updatePageSEO(options: {
       articleSection: article.category,
       keywords: trans.keywords?.join(', '),
     };
+
+    setMeta('article:published_time', article.publishedAt, true);
+    setMeta('article:modified_time', article.updatedAt, true);
+    setMeta('article:section', article.category, true);
 
     injectJsonLd(articleSchema);
 
