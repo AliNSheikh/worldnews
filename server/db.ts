@@ -160,6 +160,29 @@ class NewsroomDatabase {
     if (article.originalUrl && this.articles.some((a) => a.originalUrl === article.originalUrl)) {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
+
+    // Every localized article URL must be unique within its language edition.
+    for (const [lang, translation] of Object.entries(article.translations)) {
+      const baseSlug = (translation.slug || article.id)
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || article.id;
+
+      let candidate = baseSlug;
+      let suffix = 2;
+      while (
+        this.articles.some((existing) => {
+          const existingTranslation = existing.translations?.[lang as keyof typeof existing.translations];
+          return existingTranslation?.slug === candidate;
+        })
+      ) {
+        candidate = `${baseSlug}-${suffix++}`;
+      }
+      translation.slug = candidate;
+    }
+
     this.articles.unshift(article);
     this.queueWrite(persistence.upsertArticle(article));
     return article;
