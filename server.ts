@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
+import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './server/rss';
 import {
   generateEditorialDraft,
   regenerateArticleInAlternativeFormat,
@@ -173,16 +173,31 @@ async function startServer() {
     const source = db.getSources().find((s) => s.id === req.params.id);
     if (!source) return res.status(404).json({ error: 'Source not found' });
 
-    // Validate connection
+    const started = Date.now();
+    const items = await fetchAndParseRssFeed(source.rssUrl, 8000);
+    const responseTimeMs = Date.now() - started;
+
+    if (!items.length) {
+      return res.status(502).json({
+        success: false,
+        status: 'unavailable',
+        responseTimeMs,
+        message: `Feed test failed for '${source.name}': no valid RSS/Atom entries were parsed.`,
+      });
+    }
+
     res.json({
       success: true,
       status: 'active',
-      responseTimeMs: Math.floor(Math.random() * 80) + 40,
-      headers: {
-        'content-type': 'application/rss+xml; charset=utf-8',
-        'cache-control': 'public, max-age=300',
-      },
-      message: `Successfully connected to wire feed '${source.name}'. 15 active dispatches parsed.`,
+      responseTimeMs,
+      parsedItems: items.length,
+      sample: items.slice(0, 3).map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate || null,
+        hasImage: Boolean(item.imageUrl),
+      })),
+      message: `Successfully parsed ${items.length} live feed item(s) from '${source.name}'.`,
     });
   });
 
