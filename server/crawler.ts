@@ -1,7 +1,6 @@
 import { db } from './db';
 import { generateEditorialDraft } from './gemini';
 import { Article } from '../src/types';
-import { resolveAuthenticSourceLink } from './sourceVerification';
 import { fetchAndParseRssFeed } from './rss';
 import { extractArticleContent } from './articleExtractor';
 import {
@@ -70,58 +69,6 @@ const PRESS_PHOTOS: Record<string, { url: string; credit: string }> = {
     credit: 'Defense Intelligence Monitor',
   },
 };
-
-// Wire lead seeds that simulate live breaking dispatches from target sites
-const TARGET_SITE_DISPATCHES = [
-  {
-    topic: 'International Maritime Organization Adopts Zero-Emission Navigation Corridor Treaty',
-    description: 'Delegates from 175 member nations approved binding maritime decarbonization corridors, mandating sustainable e-fuels and zero-emission port bunkering infrastructure across key trade arteries by 2030.',
-    category: 'climate',
-    sourceDomain: 'reuters.com',
-    sourceName: 'Reuters Global Wire',
-    byline: 'Reuters Marine Desk & World News Staff',
-  },
-  {
-    topic: 'Central Banks Establish Cross-Border Quantum-Resilient Payment Interoperability Standard',
-    description: 'The Bank for International Settlements and central bank governors finalized unified post-quantum cryptographic primitives to secure wholesale cross-border currency settlements against quantum computing threats.',
-    category: 'economy',
-    sourceDomain: 'bloomberg.com',
-    sourceName: 'Bloomberg Financial Wire',
-    byline: 'Bloomberg Monetary Affairs & World News Bureau',
-  },
-  {
-    topic: 'Global Satellite Consortium Deploys Real-Time Planetary Disaster Early-Warning Array',
-    description: 'A coalition of European and international aerospace agencies successfully deployed six synthetic aperture radar satellites to provide continuous sub-millimeter crustal monitoring for earthquake and flood zones.',
-    category: 'technology',
-    sourceDomain: 'apnews.com',
-    sourceName: 'Associated Press Wire',
-    byline: 'AP Aerospace Desk / Staff Editors',
-  },
-  {
-    topic: 'UN High Commissioner Concludes Multilateral Food Security Compact for Drought-Affected Basins',
-    description: 'A 4.2 billion dollar resilience package was ratified in Geneva, establishing strategic cereal reserves and solar-powered groundwater retrieval across the Horn of Africa and Sahelian river basins.',
-    category: 'world',
-    sourceDomain: 'aljazeera.com',
-    sourceName: 'Al Jazeera International',
-    byline: 'Al Jazeera Diplomatic Wire & Editors',
-  },
-  {
-    topic: 'World Health Assembly Finalizes Emergency Response Guidelines for Vector-Borne Pathogens',
-    description: 'Health ministers endorsed accelerated multilateral vaccine distribution protocols, genomic sequencing sharing frameworks, and localized clinical manufacturing hubs across five continents.',
-    category: 'health',
-    sourceDomain: 'bbc.com',
-    sourceName: 'BBC World Service Wire',
-    byline: 'BBC Health Sciences Bureau',
-  },
-  {
-    topic: 'European Clean Energy Grid Completes Continental High-Voltage Direct Current Synchronous Link',
-    description: 'Transmission operators synchronized the largest subsea and underground HVDC transmission link, enabling 12 gigawatts of North Sea offshore wind power to reach industrial centers in Central and Southern Europe.',
-    category: 'technology',
-    sourceDomain: 'lemonde.fr',
-    sourceName: 'European Press Syndicate',
-    byline: 'Paris Bureau & World News Editorial Desk',
-  },
-];
 
 export async function runCrawlerCycle(): Promise<{
   success: boolean;
