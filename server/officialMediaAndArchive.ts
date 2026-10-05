@@ -146,7 +146,7 @@ export async function extractOfficialPageMetadata(
     }
 
     // JSON-LD backup for images & descriptions
-    if (!result.imageUrl || !result.description) {
+    if (!result.imageUrl || !result.description || !result.articleText) {
       const jsonLdRegex = /<script\s+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
       let match: RegExpExecArray | null;
       while ((match = jsonLdRegex.exec(html)) !== null) {
