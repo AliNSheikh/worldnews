@@ -23,7 +23,9 @@ import {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
+
+  await db.ready();
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
@@ -228,9 +230,32 @@ async function startServer() {
     res.json(db.getLogs());
   });
 
+  // Vercel Cron: exactly once per hour according to vercel.json.
+  // When CRON_SECRET is configured, Vercel sends it as a Bearer token.
+  app.get('/api/cron/hourly', async (req, res) => {
+    try {
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized cron request' });
+      }
+
+      const result = await runRssImportJob();
+      await db.flush();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ...result,
+        ranAt: new Date().toISOString(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // Automation Pipeline
   app.post('/api/automation/run', async (req, res) => {
     const result = await runRssImportJob();
+    await db.flush();
     res.json(result);
   });
 
@@ -242,6 +267,7 @@ async function startServer() {
   app.post('/api/crawler/run-now', async (req, res) => {
     try {
       const result = await runCrawlerCycle();
+      await db.flush();
       res.json(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -796,8 +822,11 @@ async function startServer() {
     }
   });
 
-  // Start the background hourly automated retrieval scheduler
-  startHourlyCrawlerScheduler();
+  // Traditional setInterval is only useful for local/long-lived servers.
+  // Vercel production uses the authenticated Cron route above.
+  if (!process.env.VERCEL) {
+    startHourlyCrawlerScheduler();
+  }
 
   // ==========================================
   // Vite Integration (Dev Middleware or Dist)
