@@ -48,6 +48,14 @@ ${rawDescription ? `OFFICIAL NEWS WIRE DESCRIPTION / LEAD:\n"${rawDescription}"\
 ${archivedContext ? `ADDITIONAL CONTEXT:\n"${archivedContext}"\n` : ''}
 CANONICAL SOURCE: ${sourceName} (${sourceUrl})
 
+SOURCE-GROUNDING RULES — MANDATORY:
+- Treat the fetched article body/context as the factual boundary. Never add a person, number, quote, date, location, cause, consequence, or claim that is not supported by the supplied source material.
+- Regenerate the headline and article wording in original editorial language while preserving the exact topic, meaning, named entities, chronology, and factual claims.
+- Paraphrase independently; do not copy long passages verbatim.
+- Do not mention the source publisher, source URL, scraping, feeds, AI, or internal acquisition process in public-facing title, summary, body, SEO fields, FAQ, tags, or entities.
+- If only a headline/description is available, write a concise report limited to those verified facts instead of filling gaps.
+- The first generated edition must faithfully reflect the source article's language/content; then produce semantically equivalent versions for every supported language.
+
 CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
 1. **Title Optimization for Google News & SEO**:
    - Write clear, compelling, active-voice headlines (under 70 characters) front-loaded with high-intent primary keywords and named entities.
@@ -61,7 +69,8 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
 4. **Structured Multi-Section Reporting**:
    - Provide comprehensive, well-structured body copy with informative Markdown headers (##, ###), bullet takeaways, and direct factual quotes where appropriate.
 5. **Entity & Keyword Grounding**:
-   - Supply 5-8 search-indexed keywords and 3-5 verified named entities (politicians, organizations, summits, geographic regions).
+   - Supply 5-8 search-indexed keywords/tags and 3-5 verified named entities (people, organizations, events, geographic regions) strictly supported by the source material.
+   - seoTitle should normally stay around 50-60 characters where language permits; metaDescription should normally stay around 140-160 characters and accurately summarize the page.
 6. **Complete Multilingual Coverage for ALL 5 Languages**:
    - "en" (English), "ar" (Modern Standard Arabic - فصيح ومهني للغاية), "de" (German), "es" (Spanish), "fr" (French).
    - Slugs should be clean and SEO-friendly.`,
