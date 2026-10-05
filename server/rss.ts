@@ -190,7 +190,10 @@ export function generateSitemapXml(origin: string): string {
 
 export function generateNewsSitemapXml(origin: string): string {
   // Google News sitemap includes articles published in the last 48 hours
-  const articles = db.getArticles({ status: 'published' });
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+  const articles = db
+    .getArticles({ status: 'published' })
+    .filter((article) => new Date(article.publishedAt).getTime() >= cutoff);
   const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   const settings = db.getSettings();
 
