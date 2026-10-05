@@ -3,6 +3,7 @@ import { generateEditorialDraft } from './gemini';
 import { Article } from '../src/types';
 import { resolveAuthenticSourceLink } from './sourceVerification';
 import { fetchAndParseRssFeed } from './rss';
+import { resolveOrGenerateArticleImage, resolveVideoMetadata } from './mediaResolver';
 import {
   extractOfficialPageMetadata,
   createArchiveSnapshot,
@@ -37,38 +38,6 @@ function initScrapedUrls() {
     }
   });
 }
-
-// Curated photo library for realistic international news ingest
-const PRESS_PHOTOS: Record<string, { url: string; credit: string }> = {
-  world: {
-    url: 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80',
-    credit: 'UN Photo / Multilateral Press Pool',
-  },
-  politics: {
-    url: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80',
-    credit: 'International Diplomatic Pool',
-  },
-  economy: {
-    url: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Financial Markets Exchange Bureau',
-  },
-  technology: {
-    url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Semiconductor Research Consortium',
-  },
-  climate: {
-    url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Earth Observation Agency / Copernicus',
-  },
-  health: {
-    url: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Global Health Organization / Epidemic Surveillance',
-  },
-  defense: {
-    url: 'https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Defense Intelligence Monitor',
-  },
-};
 
 export async function runCrawlerCycle(): Promise<{
   success: boolean;
@@ -155,8 +124,30 @@ export async function runCrawlerCycle(): Promise<{
           sourceArticleText
         );
 
-        const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
-        const finalImage = realImage || photoConfig.url;
+        const videoCandidate = officialMeta.videoUrl || item.feedVideo || null;
+        const videoMeta = videoCandidate ? resolveVideoMetadata(videoCandidate) : null;
+
+        let finalImage = realImage || null;
+        let finalImageCredit = realImage ? 'Editorial image' : 'World News Visual Desk';
+        let finalImageLicense = realImage
+          ? 'Upstream editorial media; verify publishing rights before monetized use'
+          : 'World News generated/fallback visual';
+        let finalImageProvenance = realImage
+          ? 'Extracted from the verified article/feed metadata'
+          : 'Generated or topic-matched fallback illustration';
+
+        if (!finalImage) {
+          const resolved = await resolveOrGenerateArticleImage({
+            title: item.topic,
+            description: effectiveDescription,
+            category: item.category,
+            videoThumbnail: videoMeta?.videoThumbnail,
+          });
+          finalImage = resolved.image;
+          finalImageCredit = resolved.imageCredit;
+          finalImageLicense = resolved.imageLicense;
+          finalImageProvenance = resolved.imageProvenance;
+        }
 
         const archiveSnapshot = createArchiveSnapshot({
           headline: item.topic,
@@ -164,8 +155,6 @@ export async function runCrawlerCycle(): Promise<{
           sourceUrl: item.targetArticleUrl,
           sourceAgency: src.name,
         });
-
-        const videoCandidate = officialMeta.videoUrl || item.feedVideo || null;
 
         const newArticle: Article = {
           id: `wire-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
@@ -177,9 +166,9 @@ export async function runCrawlerCycle(): Promise<{
           officialImageUrl: realImage || undefined,
           archiveSnapshot,
           image: finalImage,
-          imageCredit: 'Newsroom Photo Archive / Press Pool',
-          imageProvenance: 'Official editorial press pool photography',
-          imageLicense: 'Editorial Press Archive',
+          imageCredit: finalImageCredit,
+          imageProvenance: finalImageProvenance,
+          imageLicense: finalImageLicense,
           status: Object.values(draft.translations).every(
             (translation) => translation.translationStatus === 'complete'
           )
