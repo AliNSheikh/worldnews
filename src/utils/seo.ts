@@ -60,6 +60,15 @@ export function updatePageSEO(options: {
       setMeta('news_keywords', trans.keywords.join(', '));
       setMeta('keywords', trans.keywords.join(', '));
     }
+
+    document.querySelectorAll('meta[property="article:tag"][data-seo="dynamic-tag"]').forEach((el) => el.remove());
+    (trans.tags || trans.keywords || []).slice(0, 8).forEach((tag) => {
+      const tagMeta = document.createElement('meta');
+      tagMeta.setAttribute('property', 'article:tag');
+      tagMeta.setAttribute('content', tag);
+      tagMeta.setAttribute('data-seo', 'dynamic-tag');
+      document.head.appendChild(tagMeta);
+    });
   }
 
   // OpenGraph
