@@ -8,6 +8,7 @@ export interface ExtractedPageMetadata {
   publishedTime: string | null;
   author: string | null;
   siteName: string | null;
+  articleBody: string | null;
 }
 
 export interface ArchiveSnapshotData {
@@ -62,6 +63,7 @@ export async function extractOfficialPageMetadata(
     publishedTime: null,
     author: null,
     siteName: null,
+    articleBody: null,
   };
 
   if (!url || !url.startsWith('http')) {
@@ -118,6 +120,57 @@ export async function extractOfficialPageMetadata(
           result.description = cleanedP;
         }
       }
+    }
+
+    // 2b. Extract the actual article body. This is the factual grounding used by
+    // the editorial/translation pipeline; a headline or meta description alone is not enough.
+    const bodyCandidates: string[] = [];
+
+    // Prefer structured NewsArticle.articleBody when publishers expose it.
+    const bodyJsonLdRegex = /<script\s+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let bodyJsonMatch: RegExpExecArray | null;
+    while ((bodyJsonMatch = bodyJsonLdRegex.exec(html)) !== null) {
+      try {
+        const parsed = JSON.parse(bodyJsonMatch[1]);
+        const roots = Array.isArray(parsed) ? parsed : [parsed];
+        for (const root of roots) {
+          const nodes = Array.isArray(root?.['@graph']) ? root['@graph'] : [root];
+          for (const node of nodes) {
+            if (node && typeof node.articleBody === 'string') {
+              const cleaned = cleanHtmlText(node.articleBody);
+              if (cleaned.length >= 180) bodyCandidates.push(cleaned);
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Fallback: collect substantial paragraphs from the article/main container.
+    const articleMatch =
+      html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i) ||
+      html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+    const articleHtml = articleMatch?.[1] || html;
+    const paragraphRegex = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+    const paragraphs: string[] = [];
+    let paragraphMatch: RegExpExecArray | null;
+    while ((paragraphMatch = paragraphRegex.exec(articleHtml)) !== null) {
+      const paragraph = cleanHtmlText(paragraphMatch[1]);
+      if (
+        paragraph.length >= 45 &&
+        !/^(advertisement|subscribe|sign up|read more|related:|cookie|privacy)/i.test(paragraph) &&
+        !/(all rights reserved|newsletter|follow us on|terms of use)/i.test(paragraph)
+      ) {
+        paragraphs.push(paragraph);
+      }
+    }
+
+    if (paragraphs.length >= 2) {
+      bodyCandidates.push(paragraphs.slice(0, 80).join('\n\n'));
+    }
+
+    if (bodyCandidates.length > 0) {
+      result.articleBody = bodyCandidates.sort((a, b) => b.length - a.length)[0].slice(0, 30000);
+      if (!result.description) result.description = result.articleBody.slice(0, 320);
     }
 
     // 3. Extract Official Image URL (og:image, twitter:image, JSON-LD Schema)
