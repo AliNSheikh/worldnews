@@ -452,9 +452,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         // Use real original image URL directly on the site
         let finalImage = extractedImage || null;
-        let finalImageCredit = 'Newsroom Photo Archive / Press Pool';
-        let finalImageLicense = 'Editorial Press Archive';
-        let finalImageProvenance = 'Official editorial press pool photography';
+        let finalImageCredit = extractedImage ? 'Source-page image' : '';
+        let finalImageLicense = extractedImage ? 'Use subject to publisher/media rights' : '';
+        let finalImageProvenance = extractedImage ? 'Extracted from the article page metadata/structured data' : '';
 
         if (!finalImage) {
           const resolved = await resolveOrGenerateArticleImage({
@@ -464,6 +464,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
             videoThumbnail: videoMeta?.videoThumbnail,
           });
           finalImage = resolved.image;
+          finalImageCredit = resolved.imageCredit;
+          finalImageLicense = resolved.imageLicense;
+          finalImageProvenance = resolved.imageProvenance;
         }
 
         // Generate high-grade Google News journalistic draft
