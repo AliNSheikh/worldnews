@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
               title="Editorial Ethics and Verification Principles"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+              <ShieldCheck className="w-3.5 h-3.5 text-red-400" />
               <span className="hidden sm:inline">{t.editorialGuidelines}</span>
             </button>
 
@@ -100,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-haspopup="listbox"
                 aria-label="Switch Language"
               >
-                <Globe className="w-3.5 h-3.5 text-sky-400" />
+                <Globe className="w-3.5 h-3.5 text-red-400" />
                 <span>{currentLangObj.flag}</span>
                 <span>{currentLangObj.label}</span>
                 <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${langDropdownOpen ? 'rotate-180' : ''}`} />
@@ -128,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
                         }}
                         className={`w-full text-start px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-sky-600/30 text-sky-300 font-bold'
+                            ? 'bg-red-600/20 text-red-200 font-bold'
                             : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                         }`}
                         role="option"
@@ -138,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
                           <span>{item.flag}</span>
                           <span>{item.label}</span>
                         </span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-sky-400" />}
+                        {isSelected && <Check className="w-3.5 h-3.5 text-red-400" />}
                       </button>
                     );
                   })}
@@ -169,7 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="text-start group cursor-pointer"
           >
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 group-hover:text-sky-700 transition-colors">
+              <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 group-hover:text-red-700 transition-colors">
                 {siteSettings.names[currentLang] || 'WORLD NEWS'}
               </span>
               <span className="hidden sm:inline-block w-2.5 h-2.5 rounded-full bg-red-600 mb-0.5"></span>
@@ -205,7 +205,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => onSelectCategory('all')}
               className={`px-3 py-2 text-sm font-semibold transition-colors cursor-pointer border-b-2 whitespace-nowrap ${
                 selectedCategory === 'all'
-                  ? 'border-sky-600 text-sky-700'
+                  ? 'border-red-600 text-red-700'
                   : 'border-transparent text-slate-700 hover:text-slate-900 hover:border-slate-300'
               }`}
             >
@@ -221,7 +221,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={() => onSelectCategory(cat.slug)}
                   className={`px-3 py-2 text-sm font-semibold transition-colors cursor-pointer border-b-2 whitespace-nowrap ${
                     selectedCategory === cat.slug
-                      ? 'border-sky-600 text-sky-700'
+                      ? 'border-red-600 text-red-700'
                       : 'border-transparent text-slate-700 hover:text-slate-900 hover:border-slate-300'
                   }`}
                 >
@@ -251,7 +251,7 @@ export const Header: React.FC<HeaderProps> = ({
                 setMobileMenuOpen(false);
               }}
               className={`text-start px-3 py-2 rounded text-sm font-medium ${
-                selectedCategory === 'all' ? 'bg-sky-50 text-sky-700' : 'text-slate-700 hover:bg-slate-50'
+                selectedCategory === 'all' ? 'bg-red-50 text-red-700' : 'text-slate-700 hover:bg-slate-50'
               }`}
             >
               {t.all}
@@ -264,7 +264,7 @@ export const Header: React.FC<HeaderProps> = ({
                   setMobileMenuOpen(false);
                 }}
                 className={`text-start px-3 py-2 rounded text-sm font-medium ${
-                  selectedCategory === cat.slug ? 'bg-sky-50 text-sky-700' : 'text-slate-700 hover:bg-slate-50'
+                  selectedCategory === cat.slug ? 'bg-red-50 text-red-700' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 {cat.names[currentLang] || cat.slug}
