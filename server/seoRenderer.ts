@@ -30,6 +30,7 @@ export function renderSeoDocument(template: string, origin: string, requestPath:
   let image = '';
   let type = 'website';
   let jsonLd: Record<string, unknown> | null = null;
+  let keywords: string[] = [];
   let hreflangs: Array<{ lang: string; href: string }> = LANGUAGES.map((code) => ({
     lang: code,
     href: absolute(origin, '/' + code),
@@ -45,6 +46,7 @@ export function renderSeoDocument(template: string, origin: string, requestPath:
       canonicalPath = '/' + lang + '/news/' + article.category + '/' + trans.slug;
       image = article.image || article.officialImageUrl || '';
       type = 'article';
+      keywords = trans.keywords || [];
       hreflangs = LANGUAGES.map((code) => {
         const alt = article.translations[code] || article.translations.en;
         return {
@@ -97,6 +99,7 @@ export function renderSeoDocument(template: string, origin: string, requestPath:
     '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">',
     '<meta name="googlebot" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">',
     verificationContent ? '<meta name="google-site-verification" content="' + esc(verificationContent) + '">' : '',
+    keywords.length ? '<meta name="keywords" content="' + esc(keywords.join(', ')) + '">' : '',
     '<link rel="canonical" href="' + esc(canonical) + '">',
     ...hreflangs.map((item) => '<link rel="alternate" hreflang="' + item.lang + '" href="' + esc(item.href) + '">'),
     '<link rel="alternate" hreflang="x-default" href="' + esc(hreflangs.find((item) => item.lang === 'en')?.href || canonical) + '">',
