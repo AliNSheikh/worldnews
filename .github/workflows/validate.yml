@@ -1,12 +1,13 @@
 name: Validate World News
 
 on:
-  push:
-    branches:
-      - chatgpt/worldnews-v1
   pull_request:
     branches:
       - main
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
