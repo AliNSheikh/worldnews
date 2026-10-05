@@ -8,6 +8,7 @@ export interface ExtractedPageMetadata {
   publishedTime: string | null;
   author: string | null;
   siteName: string | null;
+  articleText: string | null;
 }
 
 export interface ArchiveSnapshotData {
@@ -62,6 +63,7 @@ export async function extractOfficialPageMetadata(
     publishedTime: null,
     author: null,
     siteName: null,
+    articleText: null,
   };
 
   if (!url || !url.startsWith('http')) {
@@ -144,7 +146,7 @@ export async function extractOfficialPageMetadata(
     }
 
     // JSON-LD backup for images & descriptions
-    if (!result.imageUrl || !result.description) {
+    if (!result.imageUrl || !result.description || !result.articleText) {
       const jsonLdRegex = /<script\s+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
       let match: RegExpExecArray | null;
       while ((match = jsonLdRegex.exec(html)) !== null) {
@@ -158,6 +160,9 @@ export async function extractOfficialPageMetadata(
             for (const sub of subItems) {
               if (!result.description && typeof sub.description === 'string' && sub.description.length > 20) {
                 result.description = cleanHtmlText(sub.description);
+              }
+              if (!result.articleText && typeof sub.articleBody === 'string' && sub.articleBody.length > 120) {
+                result.articleText = cleanHtmlText(sub.articleBody).slice(0, 24000);
               }
               if (!result.imageUrl) {
                 if (typeof sub.image === 'string') {
@@ -173,6 +178,29 @@ export async function extractOfficialPageMetadata(
             }
           }
         } catch {}
+      }
+    }
+
+    // Extract source article body for fact-grounded rewriting.
+    // Prefer semantic <article>, then <main>. We only keep substantive paragraph text
+    // and intentionally discard navigation, scripts, widgets, captions and forms.
+    if (!result.articleText) {
+      const semanticMatch =
+        html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i) ||
+        html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+
+      if (semanticMatch?.[1]) {
+        const cleanedContainer = semanticMatch[1]
+          .replace(/<(script|style|nav|aside|form|footer|header|figure)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+
+        const paragraphs = [...cleanedContainer.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+          .map((match) => cleanHtmlText(match[1] || ''))
+          .filter((paragraph) => paragraph.length >= 40);
+
+        const deduped = [...new Set(paragraphs)];
+        if (deduped.length > 0) {
+          result.articleText = deduped.join('\n\n').slice(0, 24000);
+        }
       }
     }
 

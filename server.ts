@@ -1,8 +1,9 @@
 import express from 'express';
+import crypto from 'crypto';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
+import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './server/rss';
 import {
   generateEditorialDraft,
   regenerateArticleInAlternativeFormat,
@@ -23,10 +24,117 @@ import {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
+
+  await db.ready();
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  const adminSessionSecret = process.env.ADMIN_SESSION_SECRET || adminPassword;
+  const adminCookieName = 'world_news_admin_session';
+
+  const parseCookies = (header = '') =>
+    Object.fromEntries(
+      header
+        .split(';')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const idx = part.indexOf('=');
+          return idx >= 0
+            ? [decodeURIComponent(part.slice(0, idx)), decodeURIComponent(part.slice(idx + 1))]
+            : [decodeURIComponent(part), ''];
+        })
+    );
+
+  const signAdminSession = (expiresAt: number) => {
+    const payload = String(expiresAt);
+    const signature = crypto
+      .createHmac('sha256', adminSessionSecret)
+      .update(payload)
+      .digest('base64url');
+    return `${payload}.${signature}`;
+  };
+
+  const isValidAdminSession = (token?: string) => {
+    if (!token || !adminSessionSecret) return false;
+    const [expiresRaw, signature] = token.split('.');
+    const expiresAt = Number(expiresRaw);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || !signature) return false;
+
+    const expected = crypto
+      .createHmac('sha256', adminSessionSecret)
+      .update(expiresRaw)
+      .digest('base64url');
+
+    const expectedBuffer = Buffer.from(expected);
+    const signatureBuffer = Buffer.from(signature);
+    return (
+      expectedBuffer.length === signatureBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, signatureBuffer)
+    );
+  };
+
+  const refreshDb: express.RequestHandler = async (_req, res, next) => {
+    try {
+      await db.refresh();
+      next();
+    } catch (error) {
+      console.error('[World News DB] Refresh failed:', error);
+      res.status(503).json({ error: 'Newsroom data is temporarily unavailable.' });
+    }
+  };
+
+  const requireAdmin: express.RequestHandler = (req, res, next) => {
+    const cookies = parseCookies(req.headers.cookie || '');
+    if (!isValidAdminSession(cookies[adminCookieName])) {
+      return res.status(401).json({ error: 'Administrator authentication required.' });
+    }
+    next();
+  };
+
+  app.post('/api/admin/login', (req, res) => {
+    if (!adminPassword || !adminSessionSecret) {
+      return res.status(503).json({
+        error: 'Admin authentication is not configured. Set ADMIN_PASSWORD and ADMIN_SESSION_SECRET.',
+      });
+    }
+
+    const submitted = String(req.body?.password || '');
+    const submittedBuffer = Buffer.from(submitted);
+    const passwordBuffer = Buffer.from(adminPassword);
+    const valid =
+      submittedBuffer.length === passwordBuffer.length &&
+      crypto.timingSafeEqual(submittedBuffer, passwordBuffer);
+
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid administrator credentials.' });
+    }
+
+    const expiresAt = Date.now() + 12 * 60 * 60 * 1000;
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader(
+      'Set-Cookie',
+      `${adminCookieName}=${encodeURIComponent(signAdminSession(expiresAt))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure}`
+    );
+    res.json({ success: true, expiresAt: new Date(expiresAt).toISOString() });
+  });
+
+  app.get('/api/admin/session', (req, res) => {
+    const cookies = parseCookies(req.headers.cookie || '');
+    res.json({ authenticated: isValidAdminSession(cookies[adminCookieName]) });
+  });
+
+  app.post('/api/admin/logout', (req, res) => {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader(
+      'Set-Cookie',
+      `${adminCookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`
+    );
+    res.json({ success: true });
+  });
 
   // Helper for origin determination
   const getOrigin = (req: express.Request) => {
@@ -36,17 +144,17 @@ async function startServer() {
   // ==========================================
   // Public Sitemaps & RSS Feeds
   // ==========================================
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', refreshDb, (req, res) => {
     res.setHeader('Content-Type', 'application/xml');
     res.send(generateSitemapXml(getOrigin(req)));
   });
 
-  app.get('/news-sitemap.xml', (req, res) => {
+  app.get('/news-sitemap.xml', refreshDb, (req, res) => {
     res.setHeader('Content-Type', 'application/xml');
     res.send(generateNewsSitemapXml(getOrigin(req)));
   });
 
-  app.get('/rss.xml', (req, res) => {
+  app.get('/rss.xml', refreshDb, (req, res) => {
     const lang = (req.query.lang as string) || 'en';
     res.setHeader('Content-Type', 'application/rss+xml');
     res.send(generateRssXml(getOrigin(req), lang as any));
@@ -72,7 +180,7 @@ async function startServer() {
   });
 
   // Articles
-  app.get('/api/articles', (req, res) => {
+  app.get('/api/articles', refreshDb, (req, res) => {
     const { category, status, search } = req.query;
     const articles = db.getArticles({
       category: category as string,
@@ -82,7 +190,7 @@ async function startServer() {
     res.json(articles);
   });
 
-  app.get('/api/articles/:id', (req, res) => {
+  app.get('/api/articles/:id', refreshDb, (req, res) => {
     const article = db.getArticleById(req.params.id) || db.getArticleBySlug(req.params.id);
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
@@ -90,9 +198,10 @@ async function startServer() {
     res.json(article);
   });
 
-  app.post('/api/articles', (req, res) => {
+  app.post('/api/articles', requireAdmin, async (req, res) => {
     try {
       const created = db.createArticle(req.body);
+      await db.flush();
       res.status(201).json(created);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -100,9 +209,10 @@ async function startServer() {
     }
   });
 
-  app.put('/api/articles/:id', (req, res) => {
+  app.put('/api/articles/:id', requireAdmin, async (req, res) => {
     try {
       const updated = db.updateArticle(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -110,11 +220,12 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/articles/:id', (req, res) => {
+  app.delete('/api/articles/:id', requireAdmin, async (req, res) => {
     const success = db.deleteArticle(req.params.id);
     if (!success) {
       return res.status(404).json({ error: 'Article not found' });
     }
+    await db.flush();
     res.json({ success: true });
   });
 
@@ -124,13 +235,14 @@ async function startServer() {
   });
 
   // Categories
-  app.get('/api/categories', (req, res) => {
+  app.get('/api/categories', refreshDb, (req, res) => {
     res.json(db.getCategories());
   });
 
-  app.put('/api/categories/:id', (req, res) => {
+  app.put('/api/categories/:id', requireAdmin, async (req, res) => {
     try {
       const updated = db.updateCategory(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -139,18 +251,20 @@ async function startServer() {
   });
 
   // Sources
-  app.get('/api/sources', (req, res) => {
+  app.get('/api/sources', refreshDb, (req, res) => {
     res.json(db.getSources());
   });
 
-  app.post('/api/sources', (req, res) => {
+  app.post('/api/sources', requireAdmin, async (req, res) => {
     const created = db.addSource(req.body);
+    await db.flush();
     res.status(201).json(created);
   });
 
-  app.put('/api/sources/:id', (req, res) => {
+  app.put('/api/sources/:id', requireAdmin, async (req, res) => {
     try {
       const updated = db.updateSource(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -158,44 +272,62 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/sources/:id', (req, res) => {
+  app.delete('/api/sources/:id', requireAdmin, async (req, res) => {
     const success = db.deleteSource(req.params.id);
     if (!success) return res.status(404).json({ error: 'Source not found' });
+    await db.flush();
     res.json({ success: true });
   });
 
-  app.post('/api/sources/:id/test', async (req, res) => {
+  app.post('/api/sources/:id/test', requireAdmin, async (req, res) => {
     const source = db.getSources().find((s) => s.id === req.params.id);
     if (!source) return res.status(404).json({ error: 'Source not found' });
 
-    // Validate connection
+    const startedAt = Date.now();
+    const items = await fetchAndParseRssFeed(source.rssUrl, 8000);
+    const responseTimeMs = Date.now() - startedAt;
+
+    if (items.length === 0) {
+      return res.status(422).json({
+        success: false,
+        status: 'unreachable-or-empty',
+        responseTimeMs,
+        message: `No valid RSS/Atom article items could be parsed from '${source.name}'. Check the feed URL and upstream access rules.`,
+      });
+    }
+
     res.json({
       success: true,
       status: 'active',
-      responseTimeMs: Math.floor(Math.random() * 80) + 40,
-      headers: {
-        'content-type': 'application/rss+xml; charset=utf-8',
-        'cache-control': 'public, max-age=300',
-      },
-      message: `Successfully connected to wire feed '${source.name}'. 15 active dispatches parsed.`,
+      responseTimeMs,
+      parsedItems: items.length,
+      sample: items.slice(0, 3).map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        hasImage: Boolean(item.imageUrl),
+      })),
+      message: `Connected to '${source.name}' and parsed ${items.length} valid feed items.`,
     });
   });
 
-  app.post('/api/sources/:id/import', async (req, res) => {
+  app.post('/api/sources/:id/import', requireAdmin, async (req, res) => {
     const result = await runRssImportJob(req.params.id);
+    await db.flush();
     res.json(result);
   });
 
   // Comments
-  app.get('/api/comments', (req, res) => {
+  app.get('/api/comments', refreshDb, (req, res) => {
     const { articleId, status } = req.query;
     res.json(db.getComments(articleId as string, status as string));
   });
 
-  app.post('/api/comments', (req, res) => {
+  app.post('/api/comments', async (req, res) => {
     try {
       const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
       const comment = db.addComment(req.body, clientIp);
+      await db.flush();
       res.status(201).json(comment);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -203,9 +335,10 @@ async function startServer() {
     }
   });
 
-  app.put('/api/comments/:id/status', (req, res) => {
+  app.put('/api/comments/:id/status', requireAdmin, async (req, res) => {
     try {
       const updated = db.updateCommentStatus(req.params.id, req.body.status);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -214,34 +347,75 @@ async function startServer() {
   });
 
   // Settings
-  app.get('/api/settings', (req, res) => {
+  app.get('/api/settings', refreshDb, (req, res) => {
     res.json(db.getSettings());
   });
 
-  app.put('/api/settings', (req, res) => {
+  app.put('/api/settings', requireAdmin, async (req, res) => {
     const updated = db.updateSettings(req.body);
+    await db.flush();
     res.json(updated);
   });
 
   // Logs
-  app.get('/api/logs', (req, res) => {
+  app.get('/api/logs', refreshDb, (req, res) => {
     res.json(db.getLogs());
   });
 
+  // Vercel Cron: exactly once per hour according to vercel.json.
+  // When CRON_SECRET is configured, Vercel sends it as a Bearer token.
+  app.get('/api/cron/hourly', async (req, res) => {
+    try {
+      await db.refresh(0);
+      const cronSecret = process.env.CRON_SECRET;
+      if (!cronSecret && process.env.VERCEL) {
+        return res.status(503).json({
+          error: 'CRON_SECRET is required before scheduled ingestion can run on Vercel.',
+        });
+      }
+      if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized cron request' });
+      }
+
+      if (db.getSettings().autoIngestEnabled === false) {
+        return res.json({
+          success: true,
+          count: 0,
+          skipped: true,
+          message: 'Scheduled ingest is disabled in Newsroom Settings.',
+          ranAt: new Date().toISOString(),
+        });
+      }
+
+      const result = await runRssImportJob();
+      await db.flush();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ...result,
+        ranAt: new Date().toISOString(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // Automation Pipeline
-  app.post('/api/automation/run', async (req, res) => {
+  app.post('/api/automation/run', requireAdmin, async (req, res) => {
     const result = await runRssImportJob();
+    await db.flush();
     res.json(result);
   });
 
   // Automated Hourly Crawler Status & Manual Trigger
-  app.get('/api/crawler/status', (req, res) => {
+  app.get('/api/crawler/status', refreshDb, (req, res) => {
     res.json(getCrawlerStatus());
   });
 
-  app.post('/api/crawler/run-now', async (req, res) => {
+  app.post('/api/crawler/run-now', requireAdmin, async (req, res) => {
     try {
       const result = await runCrawlerCycle();
+      await db.flush();
       res.json(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -250,7 +424,7 @@ async function startServer() {
   });
 
   // Regenerate Single Article in Alternative Format (ensures correct source link is retrieved first)
-  app.post('/api/articles/:id/regenerate', async (req, res) => {
+  app.post('/api/articles/:id/regenerate', requireAdmin, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) {
@@ -289,7 +463,7 @@ async function startServer() {
   });
 
   // Regenerate ALL Articles in Alternative Format (ensures correct source link is retrieved for each first)
-  app.post('/api/articles/regenerate-all', async (req, res) => {
+  app.post('/api/articles/regenerate-all', requireAdmin, async (req, res) => {
     try {
       const format = (req.body.format as AlternativeFormatType) || 'executive-brief';
       const articles = db.getArticles();
@@ -337,7 +511,7 @@ async function startServer() {
   });
 
   // AI Editorial Generation
-  app.post('/api/ai/generate', async (req, res) => {
+  app.post('/api/ai/generate', requireAdmin, async (req, res) => {
     try {
       const { prompt, description, category, sourceName, sourceUrl } = req.body;
       if (!prompt) {
@@ -376,7 +550,7 @@ async function startServer() {
   });
 
   // AI SEO Optimization for ALL Articles (Medium length, human tone, verifies authentic links first)
-  app.post('/api/articles/optimize-all-seo', async (req, res) => {
+  app.post('/api/articles/optimize-all-seo', requireAdmin, async (req, res) => {
     try {
       const articles = db.getArticles();
       let optimizedCount = 0;
@@ -422,7 +596,7 @@ async function startServer() {
   });
 
   // AI SEO Optimization for Single Article (verifies authentic link first)
-  app.post('/api/articles/:id/optimize-seo', async (req, res) => {
+  app.post('/api/articles/:id/optimize-seo', requireAdmin, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) {
@@ -460,7 +634,7 @@ async function startServer() {
   });
 
   // Verify and Auto-Retrieve Authentic Source Link for a Single Article
-  app.post('/api/articles/:id/verify-source-link', async (req, res) => {
+  app.post('/api/articles/:id/verify-source-link', requireAdmin, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) {
@@ -489,7 +663,7 @@ async function startServer() {
   });
 
   // Verify & Repair ALL Article Source Links in Database
-  app.post('/api/articles/verify-all-source-links', async (req, res) => {
+  app.post('/api/articles/verify-all-source-links', requireAdmin, async (req, res) => {
     try {
       const articles = db.getArticles();
       let repairedCount = 0;
@@ -527,7 +701,7 @@ async function startServer() {
   });
 
   // AI Auto-Translate Article from ONE authored language to all 5 platform languages
-  app.post('/api/ai/translate-article', async (req, res) => {
+  app.post('/api/ai/translate-article', requireAdmin, async (req, res) => {
     try {
       const { title, executiveSummary, structuredBody, category, sourceLang, keywords } = req.body;
       if (!title || !structuredBody || !sourceLang) {
@@ -549,7 +723,7 @@ async function startServer() {
   });
 
   // Resolve Video Metadata (extracts responsive iframe embed URL and takes/extracts screenshot)
-  app.post('/api/media/resolve-video', (req, res) => {
+  app.post('/api/media/resolve-video', requireAdmin, (req, res) => {
     try {
       const { videoUrl } = req.body;
       if (!videoUrl) {
@@ -568,7 +742,7 @@ async function startServer() {
 
   // Generate or Search AI Image for Article based on Title & Description
   // (Preferred option: AI generation with Gemini, with fallback to curated high-aesthetic relevant search)
-  app.post('/api/ai/generate-article-image', async (req, res) => {
+  app.post('/api/ai/generate-article-image', requireAdmin, async (req, res) => {
     try {
       const { title, description, category, videoThumbnail, forceAiGeneration } = req.body;
       if (!title) {
@@ -589,7 +763,7 @@ async function startServer() {
   });
 
   // Automatically Resolve Media for a Single Article (screenshot for video, AI image if image missing)
-  app.post('/api/articles/:id/resolve-media', async (req, res) => {
+  app.post('/api/articles/:id/resolve-media', requireAdmin, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) {
@@ -676,7 +850,7 @@ async function startServer() {
   });
 
   // Get or Create Archival Verification Snapshot for an Article
-  app.get('/api/articles/:id/archive-snapshot', async (req, res) => {
+  app.get('/api/articles/:id/archive-snapshot', refreshDb, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) return res.status(404).json({ error: 'Article not found' });
@@ -707,7 +881,7 @@ async function startServer() {
   // - Resolves video screenshots and embeds video iframes
   // - Extracts official news description & official images from original URLs
   // - Preserves digital archive snapshots for all articles
-  app.post('/api/media/auto-fix-all-media', async (req, res) => {
+  app.post('/api/media/auto-fix-all-media', requireAdmin, async (req, res) => {
     try {
       const articles = db.getArticles();
       let fixedVideos = 0;
@@ -796,8 +970,11 @@ async function startServer() {
     }
   });
 
-  // Start the background hourly automated retrieval scheduler
-  startHourlyCrawlerScheduler();
+  // Traditional setInterval is only useful for local/long-lived servers.
+  // Vercel production uses the authenticated Cron route above.
+  if (!process.env.VERCEL) {
+    startHourlyCrawlerScheduler();
+  }
 
   // ==========================================
   // Vite Integration (Dev Middleware or Dist)

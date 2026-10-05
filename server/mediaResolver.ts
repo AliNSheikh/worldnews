@@ -86,99 +86,99 @@ const CURATED_AESTHETIC_PHOTOS: Record<string, Array<{ url: string; credit: stri
   world: [
     {
       url: 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1400&q=85',
-      credit: 'UN Photo & Global Summit Wire Archives',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['united nations', 'diplomacy', 'summit', 'climate', 'treaty', 'assembly', 'world'],
     },
     {
       url: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=1400&q=85',
-      credit: 'International Press Pool / Reuters Agency',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['geopolitics', 'conference', 'delegation', 'leaders', 'peace', 'negotiations'],
     },
     {
       url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Global Satellite Observatory & World News Desk',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['global', 'earth', 'satellites', 'international', 'cross-border'],
     },
   ],
   economy: [
     {
       url: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Financial Markets Desk / Bloomberg Terminal Archive',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['market', 'stock', 'finance', 'cbdc', 'currency', 'economy', 'central bank', 'inflation'],
     },
     {
       url: 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1400&q=85',
-      credit: 'World Trade & Monetary Authority Pool',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['trade', 'investment', 'gdp', 'banking', 'interest rates', 'commodities'],
     },
     {
       url: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Stock Exchange Photo Service',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['stocks', 'equities', 'monetary', 'treasury', 'fiscal'],
     },
   ],
   tech: [
     {
       url: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Quantum Information Lab / Science Photo Library',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['quantum', 'encryption', 'cybersecurity', 'cryptography', 'chips', 'hardware', 'nist'],
     },
     {
       url: 'https://images.unsplash.com/photo-1677442136019-21780efad99a?auto=format&fit=crop&w=1400&q=85',
-      credit: 'AI Research Institute / DeepMind Visuals',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['ai', 'artificial intelligence', 'machine learning', 'neural', 'algorithms', 'tech'],
     },
     {
       url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Semiconductor Fabrication Press Pool',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['silicon', 'chips', 'processors', 'computing', 'electronics'],
     },
   ],
   health: [
     {
       url: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=1400&q=85',
-      credit: 'World Health Organization (WHO) Photographic Archive',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['vaccine', 'malaria', 'who', 'health', 'medicine', 'hospital', 'immunization', 'disease'],
     },
     {
       url: 'https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Biomedical Research Center Photo Service',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['clinical', 'trials', 'pharma', 'laboratory', 'pathology', 'epidemic'],
     },
   ],
   culture: [
     {
       url: 'https://images.unsplash.com/photo-1564399579883-451a5d44ec08?auto=format&fit=crop&w=1400&q=85',
-      credit: 'UNESCO World Heritage Preservation Service',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['unesco', 'heritage', 'monuments', 'antiquities', 'museum', 'culture', 'archaeology'],
     },
     {
       url: 'https://images.unsplash.com/photo-1518998053901-5348d3961a04?auto=format&fit=crop&w=1400&q=85',
-      credit: 'National Arts & Antiquities Commission Pool',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['art', 'exhibition', 'sculpture', 'preservation', 'history'],
     },
   ],
   sports: [
     {
       url: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Olympic Press Pool / International Sports Federation',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['olympics', 'ioc', 'athletics', 'stadium', 'marathon', 'sports', 'games'],
     },
     {
       url: 'https://images.unsplash.com/photo-1517649763962-0c623266ddc0?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Sports Arena Global Media',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['football', 'tournament', 'championship', 'competition', 'athlete'],
     },
   ],
   climate: [
     {
       url: 'https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Clean Energy & Renewable Infrastructure Pool',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['solar', 'wind', 'renewables', 'climate', 'carbon', 'environment', 'emissions'],
     },
     {
       url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=85',
-      credit: 'Marine Conservation & Climate Observatory',
+      credit: 'World News Visual Desk / Unsplash fallback illustration',
       keywords: ['ocean', 'sea', 'coastal', 'nature', 'warming', 'greenhouse'],
     },
   ],
@@ -204,9 +204,9 @@ export async function resolveOrGenerateArticleImage(params: {
     return {
       image: videoThumbnail,
       imageAlt: `Video report broadcast screenshot: ${title}`,
-      imageCredit: 'Official Video Broadcast Wire / Feed Screenshot',
-      imageLicense: 'Editorial broadcast screenshot',
-      imageProvenance: 'Captured direct high-resolution video screenshot frame',
+      imageCredit: 'World News video frame',
+      imageLicense: 'Editorial video frame; verify upstream media rights before monetized use',
+      imageProvenance: 'Frame derived from the article video candidate',
       generationMethod: 'video_screenshot',
     };
   }
@@ -277,8 +277,8 @@ export async function resolveOrGenerateArticleImage(params: {
     image: bestPhoto.url,
     imageAlt: `Editorial report coverage: ${title}`,
     imageCredit: bestPhoto.credit,
-    imageLicense: 'Editorial wire press pool license',
-    imageProvenance: 'Curated high-resolution photojournalism archive',
+    imageLicense: 'Fallback illustration; verify final production licensing before monetized use',
+    imageProvenance: 'Topic-matched fallback illustration; not the original source article image',
     generationMethod: 'relevant_search',
   };
 }

@@ -190,14 +190,21 @@ export function generateSitemapXml(origin: string): string {
 
 export function generateNewsSitemapXml(origin: string): string {
   // Google News sitemap includes articles published in the last 48 hours
-  const articles = db.getArticles({ status: 'published' });
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+  const articles = db
+    .getArticles({ status: 'published' })
+    .filter((article) => {
+      const published = new Date(article.publishedAt).getTime();
+      return Number.isFinite(published) && published >= cutoff;
+    })
+    .slice(0, 1000);
   const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   const settings = db.getSettings();
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n`;
 
-  articles.slice(0, 100).forEach((art) => {
+  articles.forEach((art) => {
     languages.forEach((lang) => {
       const trans = art.translations[lang] || art.translations.en;
       const pubName = settings.names[lang] || 'World News';
@@ -390,6 +397,34 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         // Crawl and extract official webpage metadata (official description, official real image, video)
         const officialMeta = await extractOfficialPageMetadata(targetUrl);
         const finalDescription = officialMeta.description || itemDescription || targetTitle;
+        const feedBodyCandidate = (
+          feedItem.contentEncoded ||
+          feedItem['content:encoded'] ||
+          feedItem.content ||
+          feedItem.description ||
+          ''
+        )
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const sourceArticleText = (
+          officialMeta.articleText ||
+          feedBodyCandidate ||
+          finalDescription
+        ).trim();
+
+        // Accuracy gate: do not ask the model to manufacture a full article from a headline alone.
+        if (sourceArticleText.length < 80) {
+          db.updateSource(src.id, {
+            lastError: `Skipped "${targetTitle}" because no sufficiently detailed source text could be extracted.`,
+          });
+          continue;
+        }
 
         // Detect video presence in the feed item or official page
         let videoCandidate: string | null = officialMeta.videoUrl || null;
@@ -441,9 +476,13 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         // Use real original image URL directly on the site
         let finalImage = extractedImage || null;
-        let finalImageCredit = 'Newsroom Photo Archive / Press Pool';
-        let finalImageLicense = 'Editorial Press Archive';
-        let finalImageProvenance = 'Official editorial press pool photography';
+        let finalImageCredit = extractedImage ? 'Editorial image' : 'World News Visual Desk';
+        let finalImageLicense = extractedImage
+          ? 'Upstream editorial media; verify publishing rights before monetized use'
+          : 'World News generated/fallback visual';
+        let finalImageProvenance = extractedImage
+          ? 'Extracted from the verified article/feed metadata'
+          : 'Generated or topic-matched fallback illustration';
 
         if (!finalImage) {
           const resolved = await resolveOrGenerateArticleImage({
@@ -453,6 +492,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
             videoThumbnail: videoMeta?.videoThumbnail,
           });
           finalImage = resolved.image;
+          finalImageCredit = resolved.imageCredit;
+          finalImageLicense = resolved.imageLicense;
+          finalImageProvenance = resolved.imageProvenance;
         }
 
         // Generate high-grade Google News journalistic draft
@@ -461,7 +503,8 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           targetCategory,
           src.name,
           targetUrl,
-          finalDescription
+          finalDescription,
+          sourceArticleText
         );
 
         // Create permanent digital archive snapshot for the article
@@ -485,7 +528,11 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: 'published',
+          status: Object.values(draft.translations).every(
+            (translation) => translation.translationStatus === 'complete'
+          )
+            ? 'published'
+            : 'review',
           isBreaking: totalImported === 0,
           isPinned: false,
           priority: 5,
@@ -529,9 +576,11 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
     importedCount: totalImported,
   });
 
+  await db.flush();
+
   return {
     success: true,
     count: totalImported,
-    logMessage: `RSS import complete. ${totalImported} fresh dispatches (under 24h) ingested with media & video handling.`,
+    logMessage: `RSS import complete. ${totalImported} fresh articles ingested from verified feed/page content with grounded multilingual SEO metadata.`,
   };
 }

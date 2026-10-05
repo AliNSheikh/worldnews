@@ -32,39 +32,43 @@ export async function generateEditorialDraft(
   sourceName = 'World News Editorial Wire',
   sourceUrl = 'https://worldnews.org/wire/source-dispatch',
   rawDescription?: string,
+  sourceArticleText?: string,
   archivedContext?: string
 ): Promise<GeneratedArticlePayload> {
   const ai = getGenAI();
+  const sourceMaterial = [
+    rawDescription ? `SOURCE DESCRIPTION / LEAD:\n${rawDescription}` : '',
+    sourceArticleText ? `SOURCE ARTICLE BODY (PRIMARY FACTUAL GROUND TRUTH):\n${sourceArticleText}` : '',
+    archivedContext ? `ADDITIONAL VERIFIED CONTEXT:\n${archivedContext}` : '',
+  ].filter(Boolean).join('\n\n');
 
   if (ai) {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: `You are a senior international newsroom editor and SEO strategist at World News, an authoritative global publication matching Reuters, Associated Press, and BBC News.
-Write an authentic, highly credible journalistic report optimized for Google News ranking and SEO best practices based on the following verified dispatch:
+        contents: `You are a senior international newsroom editor and multilingual SEO editor for World News.
+Create an original, concise news report from the verified source material below. Accuracy is more important than length.
 
-OFFICIAL WIRE HEADLINE: "${prompt}"
-${rawDescription ? `OFFICIAL NEWS WIRE DESCRIPTION / LEAD:\n"${rawDescription}"\n` : ''}
-${archivedContext ? `ADDITIONAL CONTEXT:\n"${archivedContext}"\n` : ''}
-CANONICAL SOURCE: ${sourceName} (${sourceUrl})
+SOURCE HEADLINE: "${prompt}"
+${sourceMaterial}
 
-CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
-1. **Title Optimization for Google News & SEO**:
-   - Write clear, compelling, active-voice headlines (under 70 characters) front-loaded with high-intent primary keywords and named entities.
-   - Avoid generic clickbait, rhetorical questions, or exaggerated adjectives.
-2. **High-Impact Description (Executive Summary)**:
-   - The "executiveSummary" MUST synthesize the exact facts, figures, context, and developments from the news description.
-   - It should be 2-3 substantive, tightly written sentences (140-160 characters for search snippets) answering Who, What, Where, When, and Why.
-3. **Pure Human Journalistic Voice**:
-   - Strict ban on robotic AI phrasing (no "In an unprecedented move", "delves into", "supercharge", "beacon of hope", "it remains to be seen").
-   - Never reference AI, machine generation, or automated drafting in any text.
-4. **Structured Multi-Section Reporting**:
-   - Provide comprehensive, well-structured body copy with informative Markdown headers (##, ###), bullet takeaways, and direct factual quotes where appropriate.
-5. **Entity & Keyword Grounding**:
-   - Supply 5-8 search-indexed keywords and 3-5 verified named entities (politicians, organizations, summits, geographic regions).
-6. **Complete Multilingual Coverage for ALL 5 Languages**:
-   - "en" (English), "ar" (Modern Standard Arabic - فصيح ومهني للغاية), "de" (German), "es" (Spanish), "fr" (French).
-   - Slugs should be clean and SEO-friendly.`,
+STRICT FACT-PRESERVATION RULES:
+1. Use only facts explicitly present in the supplied headline, description, article body, or verified context.
+2. Never invent quotations, people, organizations, dates, numbers, locations, causes, consequences, reactions, or forecasts.
+3. If a detail is not in the supplied material, omit it. Do not fill gaps with plausible background.
+4. Rewrite the headline while preserving the same event, subject, named entities, and meaning. Do not change the angle.
+5. Write an original summary of the factual material; do not copy long passages or imitate the source wording sentence by sentence.
+6. Do not mention the upstream publisher, source URL, scraping, feeds, or AI in reader-facing title, summary, body, FAQ, or SEO fields. Source provenance is retained internally by the CMS.
+7. Do not create a quote unless the exact quote is present in the supplied source body.
+
+SEO / PUBLISHING REQUIREMENTS:
+- Create a natural SEO title (roughly 50-65 characters when the language allows), a useful meta description (roughly 140-160 characters), 5-8 accurate keywords, and 3-6 concise topic tags.
+- Keep titles readable and news-like; no clickbait or keyword stuffing.
+- Generate clean, unique slugs for each language.
+- Provide image alt text that describes the news topic without inventing visual details.
+- FAQ may be empty when the source material does not support factual Q&A.
+- Produce aligned editions for all supported languages: en, ar (Modern Standard Arabic), de, es, fr. Every translation must preserve the exact same factual claims and uncertainty level.
+- The body should be as detailed as the verified material supports, but never padded with invented context.`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -224,6 +228,7 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
             parsed.translations[lang].translationStatus = 'complete';
             parsed.translations[lang].executiveSummary = sanitizeBoldFormatting(parsed.translations[lang].executiveSummary || '');
             parsed.translations[lang].structuredBody = sanitizeBoldFormatting(parsed.translations[lang].structuredBody || '');
+            parsed.translations[lang].tags = parsed.translations[lang].tags || parsed.translations[lang].keywords?.slice(0, 6) || [];
           }
         });
         return {
@@ -240,116 +245,53 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
     }
   }
 
-  // Graceful editorial fallback generator if API key not yet set or model call fails
-  const safeSlug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 48) || 'breaking-news';
-  const enSummary = rawDescription
-    ? `${rawDescription.slice(0, 220)}...`
-    : `World News diplomatic and economic desks are monitoring unfolding developments regarding ${prompt}. Verified sources confirm preliminary coordination across multilateral agencies.`;
-  const arSummary = rawDescription
-    ? `أفادت النشرات الإخبارية العاجلة: ${rawDescription.slice(0, 220)}... وتواصل غرف التحرير متابعة مجريات الأحداث.`
-    : `تتابع غرفة أخبار العالم التطورات الجارية بشأن ${prompt}. وتؤكد مصادر موثقة بدء التنسيق الدبلوماسي بين الوكالات متعددة الأطراف.`;
+  // Safety-first fallback: never invent missing facts when the AI service is unavailable.
+  // These editions remain in review state so the automated pipeline will not publish/index
+  // untranslated or weakly grounded content.
+  const safeSlug =
+    prompt
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 64) || `article-${Date.now()}`;
+
+  const factualBody = (sourceArticleText || rawDescription || prompt).trim();
+  const factualSummary = (rawDescription || factualBody || prompt).replace(/\s+/g, ' ').trim().slice(0, 240);
+  const titleKeywords = prompt
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}-]/gu, ''))
+    .filter((word) => word.length > 3)
+    .slice(0, 6);
+
+  const buildReviewTranslation = (language: LanguageCode, suffix: string): ArticleTranslation => ({
+    language,
+    title: prompt,
+    slug: `${safeSlug}${suffix}`,
+    executiveSummary: factualSummary,
+    structuredBody: factualBody,
+    seoTitle: prompt.slice(0, 70),
+    metaDescription: factualSummary.slice(0, 160),
+    keywords: [...new Set([category, ...titleKeywords])].slice(0, 8),
+    tags: [...new Set(titleKeywords)].slice(0, 6),
+    imageAlt: prompt,
+    faq: [],
+    translationStatus: 'needs-review',
+    entities: [],
+  });
 
   return {
     category,
     originalSource: sourceName,
     originalUrl: sourceUrl,
-    imageAlt: `Editorial report coverage on ${prompt}`,
+    imageAlt: prompt,
+    imagePromptDescription: prompt,
     translations: {
-      en: {
-        language: 'en',
-        title: prompt,
-        slug: safeSlug,
-        executiveSummary: enSummary,
-        structuredBody: `## Overview of Developing Dispatches\n\n${rawDescription ? `**Official Wire Dispatch:** ${rawDescription}\n\n` : ''}Official representatives gathered today to review the immediate implications of the reported developments regarding **${prompt}**.\n\n### Strategic Implications\n\n- Cross-border coordination mechanisms activated immediately.\n- Sovereign working groups scheduled to convene for follow-up review.\n- Financial and operational safeguards deployed to ensure continuity.\n\n> "Transparency and verified source reporting remain the priority as international observers assess long-term outcomes."`,
-        seoTitle: `${prompt} | World News International Dispatch`,
-        metaDescription: enSummary.slice(0, 155),
-        keywords: [category, 'Global Affairs', 'Developing Story', 'World News'],
-        imageAlt: `Official briefing photo regarding ${prompt}`,
-        faq: [
-          {
-            question: 'What is the immediate timeline for further disclosures?',
-            answer: 'A formal multilateral joint communiqué is anticipated within the next 48 hours following committee deliberations.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News Bureau', 'International Secretariat'],
-      },
-      ar: {
-        language: 'ar',
-        title: `تطورات دولية: ${prompt}`,
-        slug: `${safeSlug}-ar`,
-        executiveSummary: arSummary,
-        structuredBody: `## متابعة حية لآخر التطورات\n\n${rawDescription ? `**البرقية الإخبارية الموثقة:** ${rawDescription}\n\n` : ''}عقد ممثلون دوليون اجتماعاً عاجلاً اليوم لبحث التداعيات المباشرة للتقارير الواردة حول **${prompt}**.\n\n### المحاور الاستراتيجية الرئيسية\n\n- تفعيل آليات التنسيق المشترك عبر الحدود.\n- تشكيل فرق عمل فنية لمتابعة المخرجات الميدانية.\n- اتخاذ تدابير حوكمة لضمان استقرار العمليات المؤسسية.\n\n> وأكدت مصادر مسؤولة أن التحقق الدقيق من المصادر يظل المعيار الأساسي لتقييم النتائج طويلة الأمد.`,
-        seoTitle: `${prompt} | تغطية إخبارية دولية من أخبار العالم`,
-        metaDescription: arSummary.slice(0, 155),
-        keywords: [category, 'شؤون دولية', 'عاجل', 'أخبار العالم'],
-        imageAlt: `صورة المؤتمر الصحفي حول ${prompt}`,
-        faq: [
-          {
-            question: 'ما هو الجدول الزمني للمستجدات القادمة؟',
-            answer: 'من المتوقع صدور بيان مشترك رسمي خلال الساعات الثماني والأربعين القادمة.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['غرفة أخبار العالم', 'الأمانة الدولية'],
-      },
-      de: {
-        language: 'de',
-        title: `Aktuelle Entwicklungen: ${prompt}`,
-        slug: `${safeSlug}-de`,
-        executiveSummary: `World News berichtet über die jüngsten internationalen Weichenstellungen bezüglich ${prompt}. Erste Verhandlungen haben begonnen.`,
-        structuredBody: `## Hintergrund und aktuelle Lage\n\nInternationale Delegationen haben heute erste Abstimmungsgespräche zu **${prompt}** aufgenommen. Weitere offizielle Stellungnahmen werden erwartet.`,
-        seoTitle: `${prompt} | World News Internationale Berichte`,
-        metaDescription: `Aktuelle internationale Berichterstattung und Analysen zu ${prompt} bei World News.`,
-        keywords: [category, 'Weltgeschehen', 'Aktuell'],
-        imageAlt: `Pressekonferenz zu ${prompt}`,
-        faq: [
-          {
-            question: 'Wann folgen weitere Berichte?',
-            answer: 'Eine offizielle gemeinsame Erklärung wird in Kürze erwartet.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News Bureau'],
-      },
-      es: {
-        language: 'es',
-        title: `Desarrollo de noticias: ${prompt}`,
-        slug: `${safeSlug}-es`,
-        executiveSummary: `La redacción de World News sigue de cerca la evolución informativa en torno a ${prompt}. Se han activado mecanismos de consulta.`,
-        structuredBody: `## Panorama general de los acontecimientos\n\nRepresentantes diplomáticos e institucionales han mantenido hoy contactos preliminares para evaluar el alcance de los hechos relacionados con **${prompt}**.`,
-        seoTitle: `${prompt} | World News Cobertura Internacional`,
-        metaDescription: `Cobertura y análisis internacional en torno a ${prompt} por la redacción de World News.`,
-        keywords: [category, 'Actualidad', 'Última hora'],
-        imageAlt: `Imagen informativa sobre ${prompt}`,
-        faq: [
-          {
-            question: '¿Cuándo habrá un comunicado oficial?',
-            answer: 'Se prevé una comparecencia conjunta en las próximas horas.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News'],
-      },
-      fr: {
-        language: 'fr',
-        title: `Développements internationaux : ${prompt}`,
-        slug: `${safeSlug}-fr`,
-        executiveSummary: `La rédaction de World News analyse les répercussions immédiates concernant ${prompt}. Les premières concertations multilatérales sont en cours.`,
-        structuredBody: `## Point sur les faits marquants\n\nLes chancelleries et experts internationaux se sont réunis aujourd’hui pour examiner les suites opérationnelles relatives à **${prompt}**.`,
-        seoTitle: `${prompt} | Dépêche internationale World News`,
-        metaDescription: `Analyses et reportages internationaux sur ${prompt} par la rédaction de World News.`,
-        keywords: [category, 'Monde', 'Dépêches'],
-        imageAlt: `Photographie de presse illustrant ${prompt}`,
-        faq: [
-          {
-            question: 'Quel est le calendrier attendu ?',
-            answer: 'Un communiqué de presse conjoint est attendu sous 48 heures.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News'],
-      },
+      en: buildReviewTranslation('en', ''),
+      ar: buildReviewTranslation('ar', '-ar'),
+      de: buildReviewTranslation('de', '-de'),
+      es: buildReviewTranslation('es', '-es'),
+      fr: buildReviewTranslation('fr', '-fr'),
     },
   };
 }
