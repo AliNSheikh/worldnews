@@ -389,7 +389,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         // Crawl and extract official webpage metadata (official description, official real image, video)
         const officialMeta = await extractOfficialPageMetadata(targetUrl);
+        const factualHeadline = officialMeta.title || targetTitle;
         const finalDescription = officialMeta.description || itemDescription || targetTitle;
+        const factualBody = officialMeta.articleBody || '';
 
         // Detect video presence in the feed item or official page
         let videoCandidate: string | null = officialMeta.videoUrl || null;
@@ -457,16 +459,17 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         // Generate high-grade Google News journalistic draft
         const draft = await generateEditorialDraft(
-          targetTitle,
+          factualHeadline,
           targetCategory,
           src.name,
           targetUrl,
-          finalDescription
+          finalDescription,
+          factualBody
         );
 
         // Create permanent digital archive snapshot for the article
         const archiveSnapshot = createArchiveSnapshot({
-          headline: targetTitle,
+          headline: factualHeadline,
           description: finalDescription,
           sourceUrl: targetUrl,
           sourceAgency: src.name,
