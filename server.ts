@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
+import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './server/rss';
 import {
   generateEditorialDraft,
   regenerateArticleInAlternativeFormat,
@@ -177,16 +177,31 @@ async function startServer() {
     const source = db.getSources().find((s) => s.id === req.params.id);
     if (!source) return res.status(404).json({ error: 'Source not found' });
 
-    // Validate connection
+    const startedAt = Date.now();
+    const items = await fetchAndParseRssFeed(source.rssUrl, 8000);
+    const responseTimeMs = Date.now() - startedAt;
+
+    if (items.length === 0) {
+      return res.status(422).json({
+        success: false,
+        status: 'unreachable-or-empty',
+        responseTimeMs,
+        message: `No valid RSS/Atom article items could be parsed from '${source.name}'. Check the feed URL and upstream access rules.`,
+      });
+    }
+
     res.json({
       success: true,
       status: 'active',
-      responseTimeMs: Math.floor(Math.random() * 80) + 40,
-      headers: {
-        'content-type': 'application/rss+xml; charset=utf-8',
-        'cache-control': 'public, max-age=300',
-      },
-      message: `Successfully connected to wire feed '${source.name}'. 15 active dispatches parsed.`,
+      responseTimeMs,
+      parsedItems: items.length,
+      sample: items.slice(0, 3).map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        hasImage: Boolean(item.imageUrl),
+      })),
+      message: `Connected to '${source.name}' and parsed ${items.length} valid feed items.`,
     });
   });
 
@@ -248,6 +263,16 @@ async function startServer() {
       const cronSecret = process.env.CRON_SECRET;
       if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
         return res.status(401).json({ error: 'Unauthorized cron request' });
+      }
+
+      if (db.getSettings().autoIngestEnabled === false) {
+        return res.json({
+          success: true,
+          count: 0,
+          skipped: true,
+          message: 'Scheduled ingest is disabled in Newsroom Settings.',
+          ranAt: new Date().toISOString(),
+        });
       }
 
       const result = await runRssImportJob();
