@@ -368,6 +368,11 @@ async function startServer() {
     try {
       await db.refresh(0);
       const cronSecret = process.env.CRON_SECRET;
+      if (!cronSecret && process.env.VERCEL) {
+        return res.status(503).json({
+          error: 'CRON_SECRET is required before scheduled ingestion can run on Vercel.',
+        });
+      }
       if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
         return res.status(401).json({ error: 'Unauthorized cron request' });
       }
