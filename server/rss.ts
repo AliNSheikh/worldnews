@@ -500,7 +500,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
+          status: extracted.quality === 'full' && Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
           isBreaking: false,
           isPinned: false,
           priority: 5,
