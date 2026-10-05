@@ -26,7 +26,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
   const [newRssUrl, setNewRssUrl] = useState('');
   const [newCategory, setNewCategory] = useState('world');
   const [newTrustLevel, setNewTrustLevel] = useState<NewsSource['trustLevel']>('verified');
-  const [newInterval, setNewInterval] = useState(30);
+  const [newInterval, setNewInterval] = useState(60);
 
   const handleTestSource = async (id: string) => {
     try {
