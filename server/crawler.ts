@@ -3,6 +3,7 @@ import { generateEditorialDraft } from './gemini';
 import { Article } from '../src/types';
 import { resolveAuthenticSourceLink } from './sourceVerification';
 import { fetchAndParseRssFeed } from './rss';
+import { extractArticleContent } from './articleExtractor';
 import {
   extractOfficialPageMetadata,
   createArchiveSnapshot,
@@ -21,7 +22,7 @@ interface CrawlerState {
 
 const state: CrawlerState = {
   isSchedulerActive: true,
-  intervalMs: 30 * 60 * 1000, // Every 30 minutes as requested
+  intervalMs: Math.max(60, Number(process.env.NEWS_FETCH_INTERVAL_MINUTES || 60)) * 60 * 1000,
   lastRunTime: null,
   nextRunTime: null,
   totalScrapedCount: 0,
@@ -178,27 +179,12 @@ export async function runCrawlerCycle(): Promise<{
           });
         }
       } else {
-        // Search for an un-scraped wire item matching or representing this source
-        const matchingDispatches = TARGET_SITE_DISPATCHES.filter(
-          (d) => d.category === src.category || Math.random() > 0.4
-        );
-        const chosen = matchingDispatches[Math.floor(Math.random() * matchingDispatches.length)] || TARGET_SITE_DISPATCHES[0];
-
-        const verifiedSource = await resolveAuthenticSourceLink({
-          category: chosen.category,
-          originalSource: src.name,
-          title: chosen.topic,
+        // Never fabricate fallback stories. If a source has no fresh feed items,
+        // record a clean no-op and wait for the next scheduled cycle.
+        db.updateSource(src.id, {
+          lastImport: new Date().toISOString(),
+          lastError: null,
         });
-
-        if (!state.scrapedUrls.has(verifiedSource.originalUrl) && !db.articles.some((a) => a.originalUrl === verifiedSource.originalUrl)) {
-          itemsToProcess.push({
-            topic: chosen.topic,
-            targetArticleUrl: verifiedSource.originalUrl,
-            category: chosen.category,
-            byline: 'World News International Bureau',
-            fallbackDescription: chosen.description || '',
-          });
-        }
       }
 
       for (const item of itemsToProcess) {
@@ -206,17 +192,31 @@ export async function runCrawlerCycle(): Promise<{
           continue;
         }
 
-        // Extract official metadata and official media from the live webpage
-        const officialMeta = await extractOfficialPageMetadata(item.targetArticleUrl);
-        const effectiveDescription = officialMeta.description || item.fallbackDescription || '';
-        const realImage = officialMeta.imageUrl || item.feedImage || null;
+        // Extract the actual article body before any AI rewriting.
+        // The model receives this body as the factual ground truth and must not invent details.
+        const [officialMeta, extracted] = await Promise.all([
+          extractOfficialPageMetadata(item.targetArticleUrl),
+          extractArticleContent(item.targetArticleUrl),
+        ]);
+        const effectiveDescription = extracted.description || officialMeta.description || item.fallbackDescription || '';
+        const groundedBody = extracted.body || effectiveDescription;
+        const realImage = extracted.imageUrl || officialMeta.imageUrl || item.feedImage || null;
+
+        if (!groundedBody || groundedBody.trim().length < 120) {
+          db.updateSource(src.id, {
+            lastImport: new Date().toISOString(),
+            lastError: 'Skipped article because the source body could not be extracted reliably.',
+          });
+          continue;
+        }
 
         const draft = await generateEditorialDraft(
           item.topic,
           item.category,
           src.name,
           item.targetArticleUrl,
-          effectiveDescription
+          effectiveDescription,
+          groundedBody
         );
 
         const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
@@ -244,13 +244,13 @@ export async function runCrawlerCycle(): Promise<{
           imageCredit: 'Newsroom Photo Archive / Press Pool',
           imageProvenance: 'Official editorial press pool photography',
           imageLicense: 'Editorial Press Archive',
-          status: 'published',
-          isBreaking: Math.random() < 0.2,
+          status: Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
+          isBreaking: false,
           isPinned: false,
           priority: 5,
-          views: Math.floor(Math.random() * 180) + 45,
-          shares: Math.floor(Math.random() * 30) + 5,
-          publishedAt: new Date().toISOString(),
+          views: 0,
+          shares: 0,
+          publishedAt: extracted.publishedAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           byline: item.byline,
           translations: draft.translations,
