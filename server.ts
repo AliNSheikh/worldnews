@@ -77,6 +77,16 @@ async function startServer() {
     );
   };
 
+  const refreshDb: express.RequestHandler = async (_req, res, next) => {
+    try {
+      await db.refresh();
+      next();
+    } catch (error) {
+      console.error('[World News DB] Refresh failed:', error);
+      res.status(503).json({ error: 'Newsroom data is temporarily unavailable.' });
+    }
+  };
+
   const requireAdmin: express.RequestHandler = (req, res, next) => {
     const cookies = parseCookies(req.headers.cookie || '');
     if (!isValidAdminSession(cookies[adminCookieName])) {
@@ -134,17 +144,17 @@ async function startServer() {
   // ==========================================
   // Public Sitemaps & RSS Feeds
   // ==========================================
-  app.get('/sitemap.xml', (req, res) => {
+  app.get('/sitemap.xml', refreshDb, (req, res) => {
     res.setHeader('Content-Type', 'application/xml');
     res.send(generateSitemapXml(getOrigin(req)));
   });
 
-  app.get('/news-sitemap.xml', (req, res) => {
+  app.get('/news-sitemap.xml', refreshDb, (req, res) => {
     res.setHeader('Content-Type', 'application/xml');
     res.send(generateNewsSitemapXml(getOrigin(req)));
   });
 
-  app.get('/rss.xml', (req, res) => {
+  app.get('/rss.xml', refreshDb, (req, res) => {
     const lang = (req.query.lang as string) || 'en';
     res.setHeader('Content-Type', 'application/rss+xml');
     res.send(generateRssXml(getOrigin(req), lang as any));
@@ -170,7 +180,7 @@ async function startServer() {
   });
 
   // Articles
-  app.get('/api/articles', (req, res) => {
+  app.get('/api/articles', refreshDb, (req, res) => {
     const { category, status, search } = req.query;
     const articles = db.getArticles({
       category: category as string,
@@ -180,7 +190,7 @@ async function startServer() {
     res.json(articles);
   });
 
-  app.get('/api/articles/:id', (req, res) => {
+  app.get('/api/articles/:id', refreshDb, (req, res) => {
     const article = db.getArticleById(req.params.id) || db.getArticleBySlug(req.params.id);
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
@@ -225,7 +235,7 @@ async function startServer() {
   });
 
   // Categories
-  app.get('/api/categories', (req, res) => {
+  app.get('/api/categories', refreshDb, (req, res) => {
     res.json(db.getCategories());
   });
 
@@ -241,7 +251,7 @@ async function startServer() {
   });
 
   // Sources
-  app.get('/api/sources', (req, res) => {
+  app.get('/api/sources', refreshDb, (req, res) => {
     res.json(db.getSources());
   });
 
@@ -308,7 +318,7 @@ async function startServer() {
   });
 
   // Comments
-  app.get('/api/comments', (req, res) => {
+  app.get('/api/comments', refreshDb, (req, res) => {
     const { articleId, status } = req.query;
     res.json(db.getComments(articleId as string, status as string));
   });
@@ -337,7 +347,7 @@ async function startServer() {
   });
 
   // Settings
-  app.get('/api/settings', (req, res) => {
+  app.get('/api/settings', refreshDb, (req, res) => {
     res.json(db.getSettings());
   });
 
@@ -348,7 +358,7 @@ async function startServer() {
   });
 
   // Logs
-  app.get('/api/logs', (req, res) => {
+  app.get('/api/logs', refreshDb, (req, res) => {
     res.json(db.getLogs());
   });
 
@@ -356,6 +366,7 @@ async function startServer() {
   // When CRON_SECRET is configured, Vercel sends it as a Bearer token.
   app.get('/api/cron/hourly', async (req, res) => {
     try {
+      await db.refresh(0);
       const cronSecret = process.env.CRON_SECRET;
       if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
         return res.status(401).json({ error: 'Unauthorized cron request' });
@@ -392,7 +403,7 @@ async function startServer() {
   });
 
   // Automated Hourly Crawler Status & Manual Trigger
-  app.get('/api/crawler/status', (req, res) => {
+  app.get('/api/crawler/status', refreshDb, (req, res) => {
     res.json(getCrawlerStatus());
   });
 
@@ -834,7 +845,7 @@ async function startServer() {
   });
 
   // Get or Create Archival Verification Snapshot for an Article
-  app.get('/api/articles/:id/archive-snapshot', async (req, res) => {
+  app.get('/api/articles/:id/archive-snapshot', refreshDb, async (req, res) => {
     try {
       const article = db.getArticleById(req.params.id);
       if (!article) return res.status(404).json({ error: 'Article not found' });
