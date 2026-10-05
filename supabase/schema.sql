@@ -38,7 +38,8 @@ create table if not exists public.newsroom_settings (
 create table if not exists public.newsroom_logs (
   id text primary key,
   payload jsonb not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 alter table public.newsroom_articles enable row level security;
@@ -50,3 +51,6 @@ alter table public.newsroom_logs enable row level security;
 
 -- No public policies are intentionally created.
 -- The Express server uses SUPABASE_SERVICE_ROLE_KEY server-side only.
+
+
+alter table public.newsroom_logs add column if not exists updated_at timestamptz not null default now();
