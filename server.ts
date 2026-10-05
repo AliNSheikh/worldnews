@@ -92,9 +92,10 @@ async function startServer() {
     res.json(article);
   });
 
-  app.post('/api/articles', (req, res) => {
+  app.post('/api/articles', async (req, res) => {
     try {
       const created = db.createArticle(req.body);
+      await db.flush();
       res.status(201).json(created);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -102,9 +103,10 @@ async function startServer() {
     }
   });
 
-  app.put('/api/articles/:id', (req, res) => {
+  app.put('/api/articles/:id', async (req, res) => {
     try {
       const updated = db.updateArticle(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -112,11 +114,12 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/articles/:id', (req, res) => {
+  app.delete('/api/articles/:id', async (req, res) => {
     const success = db.deleteArticle(req.params.id);
     if (!success) {
       return res.status(404).json({ error: 'Article not found' });
     }
+    await db.flush();
     res.json({ success: true });
   });
 
@@ -130,9 +133,10 @@ async function startServer() {
     res.json(db.getCategories());
   });
 
-  app.put('/api/categories/:id', (req, res) => {
+  app.put('/api/categories/:id', async (req, res) => {
     try {
       const updated = db.updateCategory(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -145,14 +149,16 @@ async function startServer() {
     res.json(db.getSources());
   });
 
-  app.post('/api/sources', (req, res) => {
+  app.post('/api/sources', async (req, res) => {
     const created = db.addSource(req.body);
+    await db.flush();
     res.status(201).json(created);
   });
 
-  app.put('/api/sources/:id', (req, res) => {
+  app.put('/api/sources/:id', async (req, res) => {
     try {
       const updated = db.updateSource(req.params.id, req.body);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -160,9 +166,10 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/sources/:id', (req, res) => {
+  app.delete('/api/sources/:id', async (req, res) => {
     const success = db.deleteSource(req.params.id);
     if (!success) return res.status(404).json({ error: 'Source not found' });
+    await db.flush();
     res.json({ success: true });
   });
 
@@ -185,6 +192,7 @@ async function startServer() {
 
   app.post('/api/sources/:id/import', async (req, res) => {
     const result = await runRssImportJob(req.params.id);
+    await db.flush();
     res.json(result);
   });
 
@@ -194,10 +202,11 @@ async function startServer() {
     res.json(db.getComments(articleId as string, status as string));
   });
 
-  app.post('/api/comments', (req, res) => {
+  app.post('/api/comments', async (req, res) => {
     try {
       const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
       const comment = db.addComment(req.body, clientIp);
+      await db.flush();
       res.status(201).json(comment);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -205,9 +214,10 @@ async function startServer() {
     }
   });
 
-  app.put('/api/comments/:id/status', (req, res) => {
+  app.put('/api/comments/:id/status', async (req, res) => {
     try {
       const updated = db.updateCommentStatus(req.params.id, req.body.status);
+      await db.flush();
       res.json(updated);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -220,8 +230,9 @@ async function startServer() {
     res.json(db.getSettings());
   });
 
-  app.put('/api/settings', (req, res) => {
+  app.put('/api/settings', async (req, res) => {
     const updated = db.updateSettings(req.body);
+    await db.flush();
     res.json(updated);
   });
 
