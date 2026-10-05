@@ -56,6 +56,8 @@ class NewsroomDatabase {
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
   private readyPromise: Promise<void> | null = null;
+  private refreshPromise: Promise<void> | null = null;
+  private lastHydratedAt = 0;
   private pendingWrites = new Set<Promise<unknown>>();
 
   public async ready(): Promise<void> {
@@ -65,8 +67,28 @@ class NewsroomDatabase {
     await this.readyPromise;
   }
 
+  public async refresh(maxAgeMs = 5000): Promise<void> {
+    await this.ready();
+
+    if (!isPersistenceConfigured() || Date.now() - this.lastHydratedAt < maxAgeMs) {
+      return;
+    }
+
+    if (!this.refreshPromise) {
+      this.refreshPromise = (async () => {
+        await this.flush();
+        await this.hydrateFromPersistence();
+      })().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+
+    await this.refreshPromise;
+  }
+
   private async hydrateFromPersistence(): Promise<void> {
     if (!isPersistenceConfigured()) {
+      this.lastHydratedAt = Date.now();
       console.info('[World News DB] Supabase is not configured; using development seed data in memory.');
       return;
     }
@@ -98,6 +120,8 @@ class NewsroomDatabase {
     } else {
       await persistence.upsertSettings(this.settings);
     }
+
+    this.lastHydratedAt = Date.now();
 
     console.info(
       `[World News DB] Hydrated persistent newsroom state: ${this.articles.length} articles, ${this.sources.length} sources.`
