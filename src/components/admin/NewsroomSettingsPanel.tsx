@@ -18,6 +18,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { SiteSettings, AutomationLog } from '../../types';
+import { HeroSliderManager } from './HeroSliderManager';
 
 interface NewsroomSettingsPanelProps {
   settings: SiteSettings;
@@ -344,6 +345,8 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           </div>
         </div>
       </form>
+
+      <HeroSliderManager settings={settings} onUpdateSettings={onUpdateSettings} />
 
       {/* AI Full-Site SEO & Search Indexing Rewrite Section */}
       <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-indigo-950 text-white rounded-2xl p-6 shadow-md border border-sky-800/40 space-y-4">
