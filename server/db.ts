@@ -9,6 +9,12 @@ import {
 } from '../src/data/initialData';
 import { sanitizeBoldFormatting } from './gemini';
 import { createArchiveSnapshot } from './officialMediaAndArchive';
+import {
+  deletePayload,
+  isRemotePersistenceConfigured,
+  loadPayloads,
+  upsertPayload,
+} from './persistence';
 
 function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
   return rawArticles.map((art) => {
@@ -52,6 +58,53 @@ class NewsroomDatabase {
   public logs: AutomationLog[] = [...INITIAL_AUTOMATION_LOGS];
   public settings: SiteSettings = { ...INITIAL_SITE_SETTINGS };
 
+  public async initializePersistence(): Promise<void> {
+    if (!isRemotePersistenceConfigured) {
+      console.log('[World News DB] Supabase not configured; using in-memory seed data.');
+      return;
+    }
+
+    try {
+      const [articles, categories, sources, logs, settings] = await Promise.all([
+        loadPayloads<Article>('articles'),
+        loadPayloads<Category>('categories'),
+        loadPayloads<NewsSource>('sources'),
+        loadPayloads<AutomationLog>('automation_logs'),
+        loadPayloads<SiteSettings>('site_settings'),
+      ]);
+
+      if (articles.length) this.articles = cleanArticlesBoldFormatting(articles);
+      if (categories.length) this.categories = categories;
+      if (sources.length) this.sources = sources;
+      if (logs.length) this.logs = logs;
+      if (settings.length) this.settings = settings[settings.length - 1];
+
+      console.log(`[World News DB] Supabase hydrated: ${this.articles.length} articles, ${this.sources.length} sources.`);
+
+      // First-run seed: persist current defaults only when a table is empty.
+      if (!articles.length) await Promise.all(this.articles.map((a) => upsertPayload('articles', a.id, a)));
+      if (!categories.length) await Promise.all(this.categories.map((x) => upsertPayload('categories', x.id, x)));
+      if (!sources.length) await Promise.all(this.sources.map((x) => upsertPayload('sources', x.id, x)));
+      if (!settings.length) await upsertPayload('site_settings', 'default', this.settings);
+    } catch (error) {
+      console.error('[World News DB] Supabase hydration failed; continuing with seed data:', error);
+    }
+  }
+
+  private persist(table: 'articles' | 'categories' | 'sources' | 'automation_logs' | 'site_settings', id: string, payload: unknown) {
+    if (!isRemotePersistenceConfigured) return;
+    void upsertPayload(table, id, payload).catch((error) => {
+      console.error(`[World News DB] Persistence failed for ${table}/${id}:`, error);
+    });
+  }
+
+  private remove(table: 'articles' | 'categories' | 'sources' | 'automation_logs' | 'site_settings', id: string) {
+    if (!isRemotePersistenceConfigured) return;
+    void deletePayload(table, id).catch((error) => {
+      console.error(`[World News DB] Delete persistence failed for ${table}/${id}:`, error);
+    });
+  }
+
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
 
@@ -94,6 +147,7 @@ class NewsroomDatabase {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
     this.articles.unshift(article);
+    this.persist('articles', article.id, article);
     return article;
   }
 
@@ -107,13 +161,16 @@ class NewsroomDatabase {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    this.persist('articles', this.articles[idx].id, this.articles[idx]);
     return this.articles[idx];
   }
 
   public deleteArticle(id: string): boolean {
     const initialLen = this.articles.length;
     this.articles = this.articles.filter((a) => a.id !== id);
-    return this.articles.length < initialLen;
+    const deleted = this.articles.length < initialLen;
+    if (deleted) this.remove('articles', id);
+    return deleted;
   }
 
   public incrementViews(id: string): number {
@@ -193,6 +250,7 @@ class NewsroomDatabase {
     const idx = this.sources.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error('Source not found');
     this.sources[idx] = { ...this.sources[idx], ...updates };
+    this.persist('sources', this.sources[idx].id, this.sources[idx]);
     return this.sources[idx];
   }
 
@@ -202,13 +260,16 @@ class NewsroomDatabase {
       id: `src-${Date.now()}`,
     };
     this.sources.push(newSource);
+    this.persist('sources', newSource.id, newSource);
     return newSource;
   }
 
   public deleteSource(id: string): boolean {
     const initialLen = this.sources.length;
     this.sources = this.sources.filter((s) => s.id !== id);
-    return this.sources.length < initialLen;
+    const deleted = this.sources.length < initialLen;
+    if (deleted) this.remove('sources', id);
+    return deleted;
   }
 
   // Categories
@@ -220,6 +281,7 @@ class NewsroomDatabase {
     const idx = this.categories.findIndex((c) => c.id === id);
     if (idx === -1) throw new Error('Category not found');
     this.categories[idx] = { ...this.categories[idx], ...updates };
+    this.persist('categories', this.categories[idx].id, this.categories[idx]);
     return this.categories[idx];
   }
 
@@ -230,6 +292,7 @@ class NewsroomDatabase {
 
   public updateSettings(updates: Partial<SiteSettings>): SiteSettings {
     this.settings = { ...this.settings, ...updates };
+    this.persist('site_settings', 'default', this.settings);
     return this.settings;
   }
 
@@ -241,6 +304,7 @@ class NewsroomDatabase {
     };
     this.logs.unshift(entry);
     if (this.logs.length > 100) this.logs.pop();
+    this.persist('automation_logs', entry.id, entry);
     return entry;
   }
 
