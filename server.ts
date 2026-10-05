@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import { readFile } from 'fs/promises';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
 import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
@@ -12,7 +13,7 @@ import {
   AlternativeFormatType,
 } from './server/gemini';
 import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './server/crawler';
-import { Article } from './src/types';
+import { Article, LanguageCode } from './src/types';
 import { testRemotePersistence } from './server/persistence';
 import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './server/sourceVerification';
 import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './server/mediaResolver';
@@ -820,9 +821,109 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const indexTemplate = await readFile(path.join(distPath, 'index.html'), 'utf8');
     app.use(express.static(distPath));
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch] || ch));
+
+    const buildServerSeo = (req: express.Request): string => {
+      const origin = getOrigin(req).replace(/\/$/, '');
+      const parts = req.path.split('/').filter(Boolean);
+      const lang = (['ar', 'en', 'de', 'es', 'fr'].includes(parts[0]) ? parts[0] : 'en') as LanguageCode;
+      const settings = db.getSettings();
+      let title = settings.names[lang] || 'World News';
+      let description = settings.descriptions[lang] || 'Latest international news and analysis.';
+      let canonicalPath = `/${lang}`;
+      let image = '';
+      let jsonLd: Record<string, unknown> | null = null;
+      const alternates: Array<{ lang: string; href: string }> = [];
+
+      if (parts[1] === 'news' && parts[3]) {
+        const article = db.getArticleBySlug(parts[3]);
+        if (article && article.status === 'published') {
+          const trans = article.translations[lang] || article.translations.en;
+          title = trans.seoTitle || trans.title;
+          description = trans.metaDescription || trans.executiveSummary;
+          canonicalPath = `/${lang}/news/${article.category}/${trans.slug}`;
+          image = article.image || '';
+          (['ar', 'en', 'de', 'es', 'fr'] as LanguageCode[]).forEach((code) => {
+            const alt = article.translations[code] || article.translations.en;
+            alternates.push({ lang: code, href: `${origin}/${code}/news/${article.category}/${alt.slug}` });
+          });
+          jsonLd = {
+            '@context': 'https://schema.org',
+            '@type': 'NewsArticle',
+            headline: trans.title,
+            description,
+            image: image ? [image] : undefined,
+            datePublished: article.publishedAt,
+            dateModified: article.updatedAt,
+            inLanguage: lang,
+            mainEntityOfPage: `${origin}${canonicalPath}`,
+            author: { '@type': 'Organization', name: settings.names[lang] || 'World News' },
+            publisher: { '@type': 'NewsMediaOrganization', name: settings.names[lang] || 'World News' },
+            articleSection: article.category,
+            keywords: trans.keywords?.join(', '),
+          };
+        }
+      } else if (parts[1] === 'category' && parts[2]) {
+        const category = db.getCategories().find((item) => item.slug === parts[2] && item.isVisible);
+        if (category) {
+          title = `${category.names[lang] || category.slug} | ${settings.names[lang] || 'World News'}`;
+          description = category.descriptions[lang] || description;
+          canonicalPath = `/${lang}/category/${category.slug}`;
+          (['ar', 'en', 'de', 'es', 'fr'] as LanguageCode[]).forEach((code) => {
+            alternates.push({ lang: code, href: `${origin}/${code}/category/${category.slug}` });
+          });
+        }
+      } else {
+        (['ar', 'en', 'de', 'es', 'fr'] as LanguageCode[]).forEach((code) => {
+          alternates.push({ lang: code, href: `${origin}/${code}` });
+        });
+      }
+
+      const canonical = `${origin}${canonicalPath}`;
+      const alternateTags = alternates
+        .map((alt) => `<link rel="alternate" hreflang="${alt.lang}" href="${escapeHtml(alt.href)}">`)
+        .join('');
+      const xDefault = `<link rel="alternate" hreflang="x-default" href="${origin}/en">`;
+      const imageTags = image
+        ? `<meta property="og:image" content="${escapeHtml(image)}"><meta name="twitter:image" content="${escapeHtml(image)}">`
+        : '';
+      const schema = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>` : '';
+
+      return [
+        `<title>${escapeHtml(title)}</title>`,
+        `<meta name="description" content="${escapeHtml(description)}">`,
+        '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">',
+        '<meta name="googlebot-news" content="index,follow">',
+        `<link rel="canonical" href="${escapeHtml(canonical)}">`,
+        alternateTags,
+        xDefault,
+        `<meta property="og:title" content="${escapeHtml(title)}">`,
+        `<meta property="og:description" content="${escapeHtml(description)}">`,
+        `<meta property="og:url" content="${escapeHtml(canonical)}">`,
+        '<meta property="og:type" content="article">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        imageTags,
+        schema,
+      ].join('');
+    };
+
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const seoMarkup = buildServerSeo(req);
+      const html = indexTemplate
+        .replace(/<title>[\s\S]*?<\/title>/i, '')
+        .replace('</head>', `${seoMarkup}</head>`);
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+      res.send(html);
     });
   }
 
