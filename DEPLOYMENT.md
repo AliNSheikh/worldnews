@@ -28,13 +28,13 @@ Import the GitHub repository into Vercel, then add these variables for Productio
 
 Deploy after saving the variables.
 
-The repository's `vercel.json` schedules:
+The repository's `vercel.json` uses a Hobby-compatible daily schedule:
 
 ```
-0 * * * *
+0 2 * * *
 ```
 
-which invokes `GET /api/cron/hourly` every hour. The endpoint requires the Vercel cron bearer secret in production.
+which invokes `GET /api/cron/hourly` once per day. Vercel Hobby rejects cron expressions that run more than once per day. To restore true hourly ingestion, upgrade the Vercel project to Pro and change the schedule back to `0 * * * *`, or call the same authenticated endpoint from an external hourly scheduler. The endpoint requires the Vercel cron bearer secret in production.
 
 ## 3. Validate the deployment
 
@@ -64,7 +64,7 @@ Then open the CMS, sign in with `ADMIN_PASSWORD`, and verify:
 4. Keep canonical and hreflang URLs on the final production domain.
 5. Use the URL Inspection tool for spot checks after launch.
 
-The application refreshes feeds hourly and publishes fresh sitemap data, but Google controls crawl and indexing timing. Hourly indexing cannot be guaranteed by the site.
+The ingestion endpoint supports hourly execution, but the bundled Vercel Hobby schedule runs daily unless the project is upgraded or an external hourly scheduler is configured. The application publishes fresh sitemap data after ingestion, but Google controls crawl and indexing timing. Hourly indexing cannot be guaranteed by the site.
 
 ## 5. Editorial and media policy
 
