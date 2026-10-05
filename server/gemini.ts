@@ -257,27 +257,25 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
   const groundedSummary = sanitizeBoldFormatting((rawDescription || groundedText).trim()).slice(0, 220);
   const languages: LanguageCode[] = ['en', 'ar', 'de', 'es', 'fr'];
 
-  const translations = Object.fromEntries(
-    languages.map((lang) => [
-      lang,
-      {
-        language: lang,
-        title: prompt,
-        slug: lang === 'en' ? safeSlug : `${safeSlug}-${lang}`,
-        executiveSummary: groundedSummary,
-        structuredBody: groundedText,
-        seoTitle: prompt.slice(0, 70),
-        metaDescription: groundedSummary.slice(0, 160),
-        keywords: [category],
-        tags: [category],
-        focusKeyphrase: category,
-        imageAlt: prompt,
-        faq: [],
-        translationStatus: 'needs-review',
-        entities: [],
-      } satisfies ArticleTranslation,
-    ])
-  ) as Record<LanguageCode, ArticleTranslation>;
+  const translations = languages.reduce<Record<LanguageCode, ArticleTranslation>>((acc, lang) => {
+    acc[lang] = {
+      language: lang,
+      title: prompt,
+      slug: lang === 'en' ? safeSlug : `${safeSlug}-${lang}`,
+      executiveSummary: groundedSummary,
+      structuredBody: groundedText,
+      seoTitle: prompt.slice(0, 70),
+      metaDescription: groundedSummary.slice(0, 160),
+      keywords: [category],
+      tags: [category],
+      focusKeyphrase: category,
+      imageAlt: prompt,
+      faq: [],
+      translationStatus: 'needs-review',
+      entities: [],
+    };
+    return acc;
+  }, {} as Record<LanguageCode, ArticleTranslation>);
 
   return {
     category,
