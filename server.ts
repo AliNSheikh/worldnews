@@ -825,13 +825,16 @@ async function startServer() {
     app.use(express.static(distPath));
 
     const escapeHtml = (value: string) =>
-      value.replace(/[&<>"']/g, (ch) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      }[ch] || ch));
+      value.replace(/[&<>"']/g, (ch) => {
+        switch (ch) {
+          case '&': return '&amp;';
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '"': return '&quot;';
+          case "'": return '&#39;';
+          default: return ch;
+        }
+      });
 
     const buildServerSeo = (req: express.Request): string => {
       const origin = getOrigin(req).replace(/\/$/, '');
