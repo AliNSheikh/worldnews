@@ -21,7 +21,7 @@ interface CrawlerState {
 
 const state: CrawlerState = {
   isSchedulerActive: true,
-  intervalMs: 30 * 60 * 1000, // Every 30 minutes as requested
+  intervalMs: 60 * 60 * 1000, // Hourly for local/non-serverless development
   lastRunTime: null,
   nextRunTime: null,
   totalScrapedCount: 0,
@@ -69,58 +69,6 @@ const PRESS_PHOTOS: Record<string, { url: string; credit: string }> = {
     credit: 'Defense Intelligence Monitor',
   },
 };
-
-// Wire lead seeds that simulate live breaking dispatches from target sites
-const TARGET_SITE_DISPATCHES = [
-  {
-    topic: 'International Maritime Organization Adopts Zero-Emission Navigation Corridor Treaty',
-    description: 'Delegates from 175 member nations approved binding maritime decarbonization corridors, mandating sustainable e-fuels and zero-emission port bunkering infrastructure across key trade arteries by 2030.',
-    category: 'climate',
-    sourceDomain: 'reuters.com',
-    sourceName: 'Reuters Global Wire',
-    byline: 'Reuters Marine Desk & World News Staff',
-  },
-  {
-    topic: 'Central Banks Establish Cross-Border Quantum-Resilient Payment Interoperability Standard',
-    description: 'The Bank for International Settlements and central bank governors finalized unified post-quantum cryptographic primitives to secure wholesale cross-border currency settlements against quantum computing threats.',
-    category: 'economy',
-    sourceDomain: 'bloomberg.com',
-    sourceName: 'Bloomberg Financial Wire',
-    byline: 'Bloomberg Monetary Affairs & World News Bureau',
-  },
-  {
-    topic: 'Global Satellite Consortium Deploys Real-Time Planetary Disaster Early-Warning Array',
-    description: 'A coalition of European and international aerospace agencies successfully deployed six synthetic aperture radar satellites to provide continuous sub-millimeter crustal monitoring for earthquake and flood zones.',
-    category: 'technology',
-    sourceDomain: 'apnews.com',
-    sourceName: 'Associated Press Wire',
-    byline: 'AP Aerospace Desk / Staff Editors',
-  },
-  {
-    topic: 'UN High Commissioner Concludes Multilateral Food Security Compact for Drought-Affected Basins',
-    description: 'A 4.2 billion dollar resilience package was ratified in Geneva, establishing strategic cereal reserves and solar-powered groundwater retrieval across the Horn of Africa and Sahelian river basins.',
-    category: 'world',
-    sourceDomain: 'aljazeera.com',
-    sourceName: 'Al Jazeera International',
-    byline: 'Al Jazeera Diplomatic Wire & Editors',
-  },
-  {
-    topic: 'World Health Assembly Finalizes Emergency Response Guidelines for Vector-Borne Pathogens',
-    description: 'Health ministers endorsed accelerated multilateral vaccine distribution protocols, genomic sequencing sharing frameworks, and localized clinical manufacturing hubs across five continents.',
-    category: 'health',
-    sourceDomain: 'bbc.com',
-    sourceName: 'BBC World Service Wire',
-    byline: 'BBC Health Sciences Bureau',
-  },
-  {
-    topic: 'European Clean Energy Grid Completes Continental High-Voltage Direct Current Synchronous Link',
-    description: 'Transmission operators synchronized the largest subsea and underground HVDC transmission link, enabling 12 gigawatts of North Sea offshore wind power to reach industrial centers in Central and Southern Europe.',
-    category: 'technology',
-    sourceDomain: 'lemonde.fr',
-    sourceName: 'European Press Syndicate',
-    byline: 'Paris Bureau & World News Editorial Desk',
-  },
-];
 
 export async function runCrawlerCycle(): Promise<{
   success: boolean;
@@ -177,28 +125,6 @@ export async function runCrawlerCycle(): Promise<{
             feedVideo: item.videoUrl,
           });
         }
-      } else {
-        // Search for an un-scraped wire item matching or representing this source
-        const matchingDispatches = TARGET_SITE_DISPATCHES.filter(
-          (d) => d.category === src.category || Math.random() > 0.4
-        );
-        const chosen = matchingDispatches[Math.floor(Math.random() * matchingDispatches.length)] || TARGET_SITE_DISPATCHES[0];
-
-        const verifiedSource = await resolveAuthenticSourceLink({
-          category: chosen.category,
-          originalSource: src.name,
-          title: chosen.topic,
-        });
-
-        if (!state.scrapedUrls.has(verifiedSource.originalUrl) && !db.articles.some((a) => a.originalUrl === verifiedSource.originalUrl)) {
-          itemsToProcess.push({
-            topic: chosen.topic,
-            targetArticleUrl: verifiedSource.originalUrl,
-            category: chosen.category,
-            byline: 'World News International Bureau',
-            fallbackDescription: chosen.description || '',
-          });
-        }
       }
 
       for (const item of itemsToProcess) {
@@ -209,14 +135,24 @@ export async function runCrawlerCycle(): Promise<{
         // Extract official metadata and official media from the live webpage
         const officialMeta = await extractOfficialPageMetadata(item.targetArticleUrl);
         const effectiveDescription = officialMeta.description || item.fallbackDescription || '';
+        const sourceArticleText = (officialMeta.articleText || effectiveDescription).trim();
         const realImage = officialMeta.imageUrl || item.feedImage || null;
+
+        // Never generate a full story from a headline-only item.
+        if (sourceArticleText.length < 80) {
+          db.updateSource(src.id, {
+            lastError: `Skipped "${item.topic}" because the source page did not expose enough article text.`,
+          });
+          continue;
+        }
 
         const draft = await generateEditorialDraft(
           item.topic,
           item.category,
           src.name,
           item.targetArticleUrl,
-          effectiveDescription
+          effectiveDescription,
+          sourceArticleText
         );
 
         const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
@@ -244,7 +180,11 @@ export async function runCrawlerCycle(): Promise<{
           imageCredit: 'Newsroom Photo Archive / Press Pool',
           imageProvenance: 'Official editorial press pool photography',
           imageLicense: 'Editorial Press Archive',
-          status: 'published',
+          status: Object.values(draft.translations).every(
+            (translation) => translation.translationStatus === 'complete'
+          )
+            ? 'published'
+            : 'review',
           isBreaking: Math.random() < 0.2,
           isPinned: false,
           priority: 5,
@@ -289,7 +229,7 @@ export async function runCrawlerCycle(): Promise<{
       success: true,
       newArticlesCount: addedCount,
       scrapedSources: scrapedSourceNames,
-      message: `Hourly automated crawl completed successfully. Detected and ingested ${addedCount} new un-scraped articles with complete 5-language metadata.`,
+      message: `Hourly crawl completed. Ingested ${addedCount} verified articles with grounded multilingual metadata.`,
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
