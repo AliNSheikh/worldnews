@@ -476,9 +476,13 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         // Use real original image URL directly on the site
         let finalImage = extractedImage || null;
-        let finalImageCredit = 'Newsroom Photo Archive / Press Pool';
-        let finalImageLicense = 'Editorial Press Archive';
-        let finalImageProvenance = 'Official editorial press pool photography';
+        let finalImageCredit = extractedImage ? 'Editorial image' : 'World News Visual Desk';
+        let finalImageLicense = extractedImage
+          ? 'Upstream editorial media; verify publishing rights before monetized use'
+          : 'World News generated/fallback visual';
+        let finalImageProvenance = extractedImage
+          ? 'Extracted from the verified article/feed metadata'
+          : 'Generated or topic-matched fallback illustration';
 
         if (!finalImage) {
           const resolved = await resolveOrGenerateArticleImage({
@@ -488,6 +492,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
             videoThumbnail: videoMeta?.videoThumbnail,
           });
           finalImage = resolved.image;
+          finalImageCredit = resolved.imageCredit;
+          finalImageLicense = resolved.imageLicense;
+          finalImageProvenance = resolved.imageProvenance;
         }
 
         // Generate high-grade Google News journalistic draft
