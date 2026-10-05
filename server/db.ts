@@ -9,6 +9,7 @@ import {
 } from '../src/data/initialData';
 import { sanitizeBoldFormatting } from './gemini';
 import { createArchiveSnapshot } from './officialMediaAndArchive';
+import { persistence } from './persistence';
 
 function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
   return rawArticles.map((art) => {
@@ -52,6 +53,52 @@ class NewsroomDatabase {
   public logs: AutomationLog[] = [...INITIAL_AUTOMATION_LOGS];
   public settings: SiteSettings = { ...INITIAL_SITE_SETTINGS };
 
+  private persist(table: string, id: string, payload: unknown, extras: Record<string, unknown> = {}) {
+    if (!persistence.enabled) return;
+    void persistence.upsert(table, {
+      id,
+      payload,
+      updated_at: new Date().toISOString(),
+      ...extras,
+    }).catch((err) => console.error('[Persistence] write failed:', err));
+  }
+
+  public async init(): Promise<void> {
+    if (!persistence.enabled) {
+      console.log('[Persistence] Supabase not configured; using in-memory development data.');
+      return;
+    }
+
+    try {
+      const [articleRows, sourceRows, categoryRows, commentRows, settingRows, logRows] = await Promise.all([
+        persistence.list('newsroom_articles'),
+        persistence.list('newsroom_sources'),
+        persistence.list('newsroom_categories'),
+        persistence.list('newsroom_comments'),
+        persistence.list('newsroom_settings'),
+        persistence.list('newsroom_logs'),
+      ]);
+
+      if (articleRows.length) this.articles = cleanArticlesBoldFormatting(articleRows.map((r: any) => r.payload as Article));
+      if (sourceRows.length) this.sources = sourceRows.map((r: any) => r.payload as NewsSource);
+      if (categoryRows.length) this.categories = categoryRows.map((r: any) => r.payload as Category);
+      if (commentRows.length) this.comments = commentRows.map((r: any) => r.payload as Comment);
+      if (settingRows.length) this.settings = settingRows[0].payload as SiteSettings;
+      if (logRows.length) this.logs = logRows.map((r: any) => r.payload as AutomationLog);
+
+      if (!articleRows.length) this.articles.forEach((a) => this.persist('newsroom_articles', a.id, a, { published_at: a.publishedAt }));
+      if (!sourceRows.length) this.sources.forEach((s) => this.persist('newsroom_sources', s.id, s));
+      if (!categoryRows.length) this.categories.forEach((cat) => this.persist('newsroom_categories', cat.id, cat));
+      if (!commentRows.length) this.comments.forEach((comment) => this.persist('newsroom_comments', comment.id, comment, { created_at: comment.createdAt }));
+      if (!settingRows.length) this.persist('newsroom_settings', 'singleton', this.settings);
+      if (!logRows.length) this.logs.forEach((log) => this.persist('newsroom_logs', log.id, log, { created_at: log.startedAt }));
+
+      console.log('[Persistence] Supabase newsroom state hydrated.');
+    } catch (err) {
+      console.error('[Persistence] Supabase hydration failed; continuing with in-memory data.', err);
+    }
+  }
+
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
 
@@ -94,6 +141,7 @@ class NewsroomDatabase {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
     this.articles.unshift(article);
+    this.persist('newsroom_articles', article.id, article, { published_at: article.publishedAt });
     return article;
   }
 
@@ -107,19 +155,23 @@ class NewsroomDatabase {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    this.persist('newsroom_articles', this.articles[idx].id, this.articles[idx], { published_at: this.articles[idx].publishedAt });
     return this.articles[idx];
   }
 
   public deleteArticle(id: string): boolean {
     const initialLen = this.articles.length;
     this.articles = this.articles.filter((a) => a.id !== id);
-    return this.articles.length < initialLen;
+    const deleted = this.articles.length < initialLen;
+    if (deleted && persistence.enabled) void persistence.remove('newsroom_articles', id).catch((err) => console.error('[Persistence] delete failed:', err));
+    return deleted;
   }
 
   public incrementViews(id: string): number {
     const article = this.articles.find((a) => a.id === id);
     if (article) {
       article.views = (article.views || 0) + 1;
+      this.persist('newsroom_articles', article.id, article, { published_at: article.publishedAt });
       return article.views;
     }
     return 0;
@@ -172,6 +224,7 @@ class NewsroomDatabase {
     };
 
     this.comments.unshift(newComment);
+    this.persist('newsroom_comments', newComment.id, newComment, { created_at: newComment.createdAt });
     return newComment;
   }
 
@@ -181,6 +234,7 @@ class NewsroomDatabase {
       throw new Error('Comment not found');
     }
     comment.moderationStatus = status;
+    this.persist('newsroom_comments', comment.id, comment, { created_at: comment.createdAt });
     return comment;
   }
 
@@ -193,6 +247,7 @@ class NewsroomDatabase {
     const idx = this.sources.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error('Source not found');
     this.sources[idx] = { ...this.sources[idx], ...updates };
+    this.persist('newsroom_sources', this.sources[idx].id, this.sources[idx]);
     return this.sources[idx];
   }
 
@@ -202,13 +257,16 @@ class NewsroomDatabase {
       id: `src-${Date.now()}`,
     };
     this.sources.push(newSource);
+    this.persist('newsroom_sources', newSource.id, newSource);
     return newSource;
   }
 
   public deleteSource(id: string): boolean {
     const initialLen = this.sources.length;
     this.sources = this.sources.filter((s) => s.id !== id);
-    return this.sources.length < initialLen;
+    const deleted = this.sources.length < initialLen;
+    if (deleted && persistence.enabled) void persistence.remove('newsroom_sources', id).catch((err) => console.error('[Persistence] delete failed:', err));
+    return deleted;
   }
 
   // Categories
@@ -220,6 +278,7 @@ class NewsroomDatabase {
     const idx = this.categories.findIndex((c) => c.id === id);
     if (idx === -1) throw new Error('Category not found');
     this.categories[idx] = { ...this.categories[idx], ...updates };
+    this.persist('newsroom_categories', this.categories[idx].id, this.categories[idx]);
     return this.categories[idx];
   }
 
@@ -230,6 +289,7 @@ class NewsroomDatabase {
 
   public updateSettings(updates: Partial<SiteSettings>): SiteSettings {
     this.settings = { ...this.settings, ...updates };
+    this.persist('newsroom_settings', 'singleton', this.settings);
     return this.settings;
   }
 
@@ -241,6 +301,7 @@ class NewsroomDatabase {
     };
     this.logs.unshift(entry);
     if (this.logs.length > 100) this.logs.pop();
+    this.persist('newsroom_logs', entry.id, entry, { created_at: entry.startedAt });
     return entry;
   }
 
