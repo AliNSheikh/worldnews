@@ -166,7 +166,7 @@ export async function runCrawlerCycle(): Promise<{
           imageCredit: realImage ? 'Source-page image' : (fallbackVisual?.imageCredit || 'No image credit available'),
           imageProvenance: realImage ? 'Extracted from the article page metadata/structured data' : (fallbackVisual?.imageProvenance || 'No image available'),
           imageLicense: realImage ? 'Use subject to publisher/media rights' : (fallbackVisual?.imageLicense || 'Unknown'),
-          status: Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
+          status: extracted.quality === 'full' && Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
           isBreaking: false,
           isPinned: false,
           priority: 5,
