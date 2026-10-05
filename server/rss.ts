@@ -569,6 +569,8 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
     importedCount: totalImported,
   });
 
+  await db.flush();
+
   return {
     success: true,
     count: totalImported,
