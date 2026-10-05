@@ -1492,4 +1492,5 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
   },
   googleSearchConsoleVerification: 'google-site-verification=wn-prod-verify-2026-auth',
   googleAnalyticsMeasurementId: 'G-WORLDNEWS247',
+  heroSlides: [],
 };
