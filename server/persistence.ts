@@ -42,12 +42,13 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
     throw new Error('Supabase persistence is not configured.');
   }
 
+  const requestHeaders = new Headers(headers());
+  const extraHeaders = new Headers(init.headers || {});
+  extraHeaders.forEach((value, key) => requestHeaders.set(key, value));
+
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     ...init,
-    headers: {
-      ...headers(),
-      ...(init.headers || {}),
-    },
+    headers: requestHeaders,
   });
 
   if (!response.ok) {
