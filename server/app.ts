@@ -2,8 +2,8 @@ import express from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { db } from './server/db';
-import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './server/rss';
+import { db } from './db';
+import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './rss';
 import {
   generateEditorialDraft,
   regenerateArticleInAlternativeFormat,
@@ -11,21 +11,19 @@ import {
   translateArticleToAllLanguages,
   sanitizeBoldFormatting,
   AlternativeFormatType,
-} from './server/gemini';
-import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './server/crawler';
-import { Article } from './src/types';
-import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './server/sourceVerification';
-import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './server/mediaResolver';
+} from './gemini';
+import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './crawler';
+import { Article } from '../src/types';
+import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './sourceVerification';
+import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './mediaResolver';
 import {
   extractOfficialPageMetadata,
   createArchiveSnapshot,
   getArchivedImageUrl,
-} from './server/officialMediaAndArchive';
+} from './officialMediaAndArchive';
 
-async function startServer() {
+export async function createApp(options: { serveFrontend?: boolean } = {}) {
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
-
   await db.ready();
 
   app.use(express.json({ limit: '10mb' }));
@@ -362,7 +360,7 @@ async function startServer() {
     res.json(db.getLogs());
   });
 
-  // Vercel Cron: exactly once per hour according to vercel.json.
+  // Vercel Cron: scheduled according to vercel.json.
   // When CRON_SECRET is configured, Vercel sends it as a Bearer token.
   app.get('/api/cron/hourly', async (req, res) => {
     try {
@@ -971,31 +969,38 @@ async function startServer() {
   });
 
   // Traditional setInterval is only useful for local/long-lived servers.
-  // Vercel production uses the authenticated Cron route above.
+  // Vercel production uses the authenticated Cron route above; cadence depends on plan/config.
   if (!process.env.VERCEL) {
     startHourlyCrawlerScheduler();
   }
 
   // ==========================================
-  // Vite Integration (Dev Middleware or Dist)
+  // Local frontend integration only.
+  // Vercel serves the Vite build from its CDN and routes API traffic to api/index.ts.
   // ==========================================
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  if (options.serveFrontend) {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`World News server listening on http://0.0.0.0:${PORT}`);
-  });
-}
+  const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {
+    console.error('[World News API] Unhandled request error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+  app.use(errorHandler);
 
-startServer();
+  return app;
+}
