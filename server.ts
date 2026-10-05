@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
 import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
@@ -12,6 +13,7 @@ import {
   AlternativeFormatType,
 } from './server/gemini';
 import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './server/crawler';
+import { renderSeoDocument } from './server/seoRenderer';
 import { Article } from './src/types';
 import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './server/sourceVerification';
 import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './server/mediaResolver';
@@ -837,9 +839,11 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const indexTemplate = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(renderSeoDocument(indexTemplate, getOrigin(req), req.originalUrl));
     });
   }
 
