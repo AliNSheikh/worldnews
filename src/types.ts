@@ -31,6 +31,8 @@ export interface ArticleTranslation {
   seoTitle: string;
   metaDescription: string;
   keywords: string[];
+  tags?: string[];
+  focusKeyphrase?: string;
   imageAlt: string;
   faq: FAQItem[];
   translationStatus: 'complete' | 'draft' | 'needs-review';
@@ -117,6 +119,17 @@ export interface AutomationLog {
   importedCount: number;
 }
 
+export interface HeroSlide {
+  id: string;
+  headline: string;
+  mediaType: 'image' | 'video';
+  mediaUrl: string;
+  buttonText: string;
+  buttonUrl: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export interface SiteSettings {
   names: Record<LanguageCode, string>;
   descriptions: Record<LanguageCode, string>;
@@ -145,6 +158,7 @@ export interface SiteSettings {
   editorialStatement: Record<LanguageCode, string>;
   googleSearchConsoleVerification: string;
   googleAnalyticsMeasurementId: string;
+  heroSlides?: HeroSlide[];
 }
 
 export interface SearchFilters {

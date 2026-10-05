@@ -17,7 +17,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { SiteSettings, AutomationLog } from '../../types';
+import { SiteSettings, AutomationLog, HeroSlide } from '../../types';
 
 interface NewsroomSettingsPanelProps {
   settings: SiteSettings;
@@ -46,6 +46,31 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
   // Google Search Console & Google Analytics
   const [gscToken, setGscToken] = useState(settings.googleSearchConsoleVerification || '');
   const [gaId, setGaId] = useState(settings.googleAnalyticsMeasurementId || '');
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(settings.heroSlides || []);
+
+  const addHeroSlide = () => {
+    setHeroSlides((slides) => [
+      ...slides,
+      {
+        id: `hero-${Date.now()}`,
+        headline: '',
+        mediaType: 'image',
+        mediaUrl: '',
+        buttonText: 'Learn More',
+        buttonUrl: '',
+        isActive: true,
+        sortOrder: slides.length,
+      },
+    ]);
+  };
+
+  const updateHeroSlide = (id: string, updates: Partial<HeroSlide>) => {
+    setHeroSlides((slides) => slides.map((slide) => (slide.id === id ? { ...slide, ...updates } : slide)));
+  };
+
+  const removeHeroSlide = (id: string) => {
+    setHeroSlides((slides) => slides.filter((slide) => slide.id !== id));
+  };
 
   // UI State
   const [saving, setSaving] = useState(false);
@@ -74,6 +99,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
         },
         googleSearchConsoleVerification: gscToken.trim(),
         googleAnalyticsMeasurementId: gaId.trim(),
+        heroSlides,
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
@@ -128,6 +154,101 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
             {savedSuccess ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
             <span>{saving ? 'Saving...' : savedSuccess ? 'Saved' : 'Save All Settings'}</span>
           </button>
+        </div>
+
+        {/* Manual Hero Campaign Slider */}
+        <div className="p-4 bg-slate-950 text-white rounded-xl space-y-4 border border-slate-800">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-sm">Hero Slider / Advertisement Campaigns</h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Add image or video campaigns with a headline and clickable button. If every slide is disabled or removed, the homepage automatically shows the latest articles instead.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={addHeroSlide}
+              className="shrink-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-bold text-white"
+            >
+              Add Slide
+            </button>
+          </div>
+
+          {heroSlides.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-700 p-4 text-xs text-slate-400">
+              No manual campaign is active. Latest articles will be used in the hero area.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {heroSlides.map((slide, index) => (
+                <div key={slide.id} className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-300">Slide {index + 1}</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={slide.isActive}
+                          onChange={(e) => updateHeroSlide(slide.id, { isActive: e.target.checked })}
+                        />
+                        Active
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeHeroSlide(slide.id)}
+                        className="text-xs font-bold text-red-400 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={slide.headline}
+                    onChange={(e) => updateHeroSlide(slide.id, { headline: e.target.value })}
+                    placeholder="Campaign headline"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                  />
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <select
+                      value={slide.mediaType}
+                      onChange={(e) => updateHeroSlide(slide.id, { mediaType: e.target.value as 'image' | 'video' })}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    >
+                      <option value="image">Image</option>
+                      <option value="video">Video</option>
+                    </select>
+                    <input
+                      type="url"
+                      value={slide.mediaUrl}
+                      onChange={(e) => updateHeroSlide(slide.id, { mediaUrl: e.target.value })}
+                      placeholder="Image or video URL"
+                      className="md:col-span-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={slide.buttonText}
+                      onChange={(e) => updateHeroSlide(slide.id, { buttonText: e.target.value })}
+                      placeholder="Button text"
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    />
+                    <input
+                      type="url"
+                      value={slide.buttonUrl}
+                      onChange={(e) => updateHeroSlide(slide.id, { buttonUrl: e.target.value })}
+                      placeholder="https://..."
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Google Search Console & Google Analytics Section */}

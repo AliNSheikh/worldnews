@@ -1,8 +1,9 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
-import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob } from './server/rss';
+import { generateSitemapXml, generateNewsSitemapXml, generateRssXml, generateRobotsTxt, runRssImportJob, fetchAndParseRssFeed } from './server/rss';
 import {
   generateEditorialDraft,
   regenerateArticleInAlternativeFormat,
@@ -12,6 +13,7 @@ import {
   AlternativeFormatType,
 } from './server/gemini';
 import { runCrawlerCycle, getCrawlerStatus, startHourlyCrawlerScheduler } from './server/crawler';
+import { renderSeoDocument } from './server/seoRenderer';
 import { Article } from './src/types';
 import { resolveAuthenticSourceLink, testUrlAccessibility, isDummyOrPlaceholderUrl } from './server/sourceVerification';
 import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './server/mediaResolver';
@@ -27,6 +29,9 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Hydrate persistent newsroom state before serving requests or starting automation.
+  await db.init();
 
   // Helper for origin determination
   const getOrigin = (req: express.Request) => {
@@ -168,16 +173,31 @@ async function startServer() {
     const source = db.getSources().find((s) => s.id === req.params.id);
     if (!source) return res.status(404).json({ error: 'Source not found' });
 
-    // Validate connection
+    const started = Date.now();
+    const items = await fetchAndParseRssFeed(source.rssUrl, 8000);
+    const responseTimeMs = Date.now() - started;
+
+    if (!items.length) {
+      return res.status(502).json({
+        success: false,
+        status: 'unavailable',
+        responseTimeMs,
+        message: `Feed test failed for '${source.name}': no valid RSS/Atom entries were parsed.`,
+      });
+    }
+
     res.json({
       success: true,
       status: 'active',
-      responseTimeMs: Math.floor(Math.random() * 80) + 40,
-      headers: {
-        'content-type': 'application/rss+xml; charset=utf-8',
-        'cache-control': 'public, max-age=300',
-      },
-      message: `Successfully connected to wire feed '${source.name}'. 15 active dispatches parsed.`,
+      responseTimeMs,
+      parsedItems: items.length,
+      sample: items.slice(0, 3).map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate || null,
+        hasImage: Boolean(item.imageUrl),
+      })),
+      message: `Successfully parsed ${items.length} live feed item(s) from '${source.name}'.`,
     });
   });
 
@@ -232,6 +252,27 @@ async function startServer() {
   app.post('/api/automation/run', async (req, res) => {
     const result = await runRssImportJob();
     res.json(result);
+  });
+
+  // External cron-safe hourly ingestion endpoint.
+  // Use this from a reliable scheduler (GitHub Actions, Cloud Scheduler, Render cron, etc.).
+  app.post('/api/cron/hourly', async (req, res) => {
+    const configuredSecret = process.env.CRON_SECRET || '';
+    const suppliedSecret =
+      (req.headers['x-cron-secret'] as string) ||
+      (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+
+    if (!configuredSecret || suppliedSecret !== configuredSecret) {
+      return res.status(401).json({ error: 'Unauthorized cron request' });
+    }
+
+    try {
+      const result = await runCrawlerCycle();
+      res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
   });
 
   // Automated Hourly Crawler Status & Manual Trigger
@@ -796,8 +837,11 @@ async function startServer() {
     }
   });
 
-  // Start the background hourly automated retrieval scheduler
-  startHourlyCrawlerScheduler();
+  // Start the in-process scheduler for long-running hosts.
+  // Serverless deployments should call /api/cron/hourly from an external hourly scheduler.
+  if (db.getSettings().autoIngestEnabled !== false) {
+    startHourlyCrawlerScheduler();
+  }
 
   // ==========================================
   // Vite Integration (Dev Middleware or Dist)
@@ -810,9 +854,11 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const indexTemplate = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(renderSeoDocument(indexTemplate, getOrigin(req), req.originalUrl));
     });
   }
 

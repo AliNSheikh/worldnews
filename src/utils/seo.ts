@@ -115,15 +115,25 @@ export function updatePageSEO(options: {
     document.head.appendChild(link);
   });
 
-  // x-default hreflang
+  // x-default hreflang should resolve to the English equivalent of the current page.
+  let defaultPath = '/en';
+  if (article) {
+    defaultPath = `/en/news/${article.category}/${article.translations.en.slug}`;
+  } else if (category) {
+    defaultPath = `/en/category/${category.slug}`;
+  }
+
   const defaultLink = document.createElement('link');
   defaultLink.setAttribute('rel', 'alternate');
   defaultLink.setAttribute('hreflang', 'x-default');
-  defaultLink.setAttribute('href', `${origin}/en`);
+  defaultLink.setAttribute('href', `${origin}${defaultPath}`);
   document.head.appendChild(defaultLink);
 
   // Structured Data (JSON-LD)
-  const existingJsonLd = document.querySelectorAll('script[type="application/ld+json"][data-seo="dynamic"]');
+  // Remove both the server-rendered bootstrap schema and previous client schema before re-injecting.
+  const existingJsonLd = document.querySelectorAll(
+    'script[type="application/ld+json"][data-seo="dynamic"], script[type="application/ld+json"][data-seo="server"]'
+  );
   existingJsonLd.forEach((el) => el.remove());
 
   // 1. Publisher Organization Schema

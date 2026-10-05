@@ -9,7 +9,7 @@ import {
   INITIAL_AUTOMATION_LOGS,
 } from './data/initialData';
 import { Header } from './components/Header';
-import { HeroSlider } from './components/HeroSlider';
+import { HeroCampaignSlider } from './components/HeroCampaignSlider';
 import { BreakingBar } from './components/BreakingBar';
 import { ArticleCard } from './components/ArticleCard';
 import { TrendingList } from './components/TrendingList';
@@ -376,10 +376,11 @@ export function App() {
         ) : (
           /* FRONT PAGE (HOMEPAGE) */
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-12">
-            {/* Hero Slider: 3 Most Recently Added Articles */}
-            {heroArticles.length > 0 && (
+            {/* Manual campaign hero; falls back to the latest articles when no campaign is active. */}
+            {((settings.heroSlides || []).some((slide) => slide.isActive && slide.mediaUrl) || heroArticles.length > 0) && (
               <section id="hero-slider-section">
-                <HeroSlider
+                <HeroCampaignSlider
+                  slides={settings.heroSlides}
                   articles={heroArticles}
                   currentLang={currentLang}
                   onSelectArticle={handleSelectArticle}

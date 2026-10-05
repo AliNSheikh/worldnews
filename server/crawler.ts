@@ -1,8 +1,9 @@
 import { db } from './db';
 import { generateEditorialDraft } from './gemini';
 import { Article } from '../src/types';
-import { resolveAuthenticSourceLink } from './sourceVerification';
 import { fetchAndParseRssFeed } from './rss';
+import { extractArticleContent } from './articleExtractor';
+import { resolveOrGenerateArticleImage } from './mediaResolver';
 import {
   extractOfficialPageMetadata,
   createArchiveSnapshot,
@@ -21,7 +22,7 @@ interface CrawlerState {
 
 const state: CrawlerState = {
   isSchedulerActive: true,
-  intervalMs: 30 * 60 * 1000, // Every 30 minutes as requested
+  intervalMs: Math.max(60, Number(process.env.NEWS_FETCH_INTERVAL_MINUTES || 60)) * 60 * 1000,
   lastRunTime: null,
   nextRunTime: null,
   totalScrapedCount: 0,
@@ -37,90 +38,6 @@ function initScrapedUrls() {
     }
   });
 }
-
-// Curated photo library for realistic international news ingest
-const PRESS_PHOTOS: Record<string, { url: string; credit: string }> = {
-  world: {
-    url: 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80',
-    credit: 'UN Photo / Multilateral Press Pool',
-  },
-  politics: {
-    url: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?auto=format&fit=crop&w=1200&q=80',
-    credit: 'International Diplomatic Pool',
-  },
-  economy: {
-    url: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Financial Markets Exchange Bureau',
-  },
-  technology: {
-    url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Semiconductor Research Consortium',
-  },
-  climate: {
-    url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Earth Observation Agency / Copernicus',
-  },
-  health: {
-    url: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Global Health Organization / Epidemic Surveillance',
-  },
-  defense: {
-    url: 'https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=1200&q=80',
-    credit: 'Defense Intelligence Monitor',
-  },
-};
-
-// Wire lead seeds that simulate live breaking dispatches from target sites
-const TARGET_SITE_DISPATCHES = [
-  {
-    topic: 'International Maritime Organization Adopts Zero-Emission Navigation Corridor Treaty',
-    description: 'Delegates from 175 member nations approved binding maritime decarbonization corridors, mandating sustainable e-fuels and zero-emission port bunkering infrastructure across key trade arteries by 2030.',
-    category: 'climate',
-    sourceDomain: 'reuters.com',
-    sourceName: 'Reuters Global Wire',
-    byline: 'Reuters Marine Desk & World News Staff',
-  },
-  {
-    topic: 'Central Banks Establish Cross-Border Quantum-Resilient Payment Interoperability Standard',
-    description: 'The Bank for International Settlements and central bank governors finalized unified post-quantum cryptographic primitives to secure wholesale cross-border currency settlements against quantum computing threats.',
-    category: 'economy',
-    sourceDomain: 'bloomberg.com',
-    sourceName: 'Bloomberg Financial Wire',
-    byline: 'Bloomberg Monetary Affairs & World News Bureau',
-  },
-  {
-    topic: 'Global Satellite Consortium Deploys Real-Time Planetary Disaster Early-Warning Array',
-    description: 'A coalition of European and international aerospace agencies successfully deployed six synthetic aperture radar satellites to provide continuous sub-millimeter crustal monitoring for earthquake and flood zones.',
-    category: 'technology',
-    sourceDomain: 'apnews.com',
-    sourceName: 'Associated Press Wire',
-    byline: 'AP Aerospace Desk / Staff Editors',
-  },
-  {
-    topic: 'UN High Commissioner Concludes Multilateral Food Security Compact for Drought-Affected Basins',
-    description: 'A 4.2 billion dollar resilience package was ratified in Geneva, establishing strategic cereal reserves and solar-powered groundwater retrieval across the Horn of Africa and Sahelian river basins.',
-    category: 'world',
-    sourceDomain: 'aljazeera.com',
-    sourceName: 'Al Jazeera International',
-    byline: 'Al Jazeera Diplomatic Wire & Editors',
-  },
-  {
-    topic: 'World Health Assembly Finalizes Emergency Response Guidelines for Vector-Borne Pathogens',
-    description: 'Health ministers endorsed accelerated multilateral vaccine distribution protocols, genomic sequencing sharing frameworks, and localized clinical manufacturing hubs across five continents.',
-    category: 'health',
-    sourceDomain: 'bbc.com',
-    sourceName: 'BBC World Service Wire',
-    byline: 'BBC Health Sciences Bureau',
-  },
-  {
-    topic: 'European Clean Energy Grid Completes Continental High-Voltage Direct Current Synchronous Link',
-    description: 'Transmission operators synchronized the largest subsea and underground HVDC transmission link, enabling 12 gigawatts of North Sea offshore wind power to reach industrial centers in Central and Southern Europe.',
-    category: 'technology',
-    sourceDomain: 'lemonde.fr',
-    sourceName: 'European Press Syndicate',
-    byline: 'Paris Bureau & World News Editorial Desk',
-  },
-];
 
 export async function runCrawlerCycle(): Promise<{
   success: boolean;
@@ -178,27 +95,12 @@ export async function runCrawlerCycle(): Promise<{
           });
         }
       } else {
-        // Search for an un-scraped wire item matching or representing this source
-        const matchingDispatches = TARGET_SITE_DISPATCHES.filter(
-          (d) => d.category === src.category || Math.random() > 0.4
-        );
-        const chosen = matchingDispatches[Math.floor(Math.random() * matchingDispatches.length)] || TARGET_SITE_DISPATCHES[0];
-
-        const verifiedSource = await resolveAuthenticSourceLink({
-          category: chosen.category,
-          originalSource: src.name,
-          title: chosen.topic,
+        // Never fabricate fallback stories. If a source has no fresh feed items,
+        // record a clean no-op and wait for the next scheduled cycle.
+        db.updateSource(src.id, {
+          lastImport: new Date().toISOString(),
+          lastError: null,
         });
-
-        if (!state.scrapedUrls.has(verifiedSource.originalUrl) && !db.articles.some((a) => a.originalUrl === verifiedSource.originalUrl)) {
-          itemsToProcess.push({
-            topic: chosen.topic,
-            targetArticleUrl: verifiedSource.originalUrl,
-            category: chosen.category,
-            byline: 'World News International Bureau',
-            fallbackDescription: chosen.description || '',
-          });
-        }
       }
 
       for (const item of itemsToProcess) {
@@ -206,21 +108,41 @@ export async function runCrawlerCycle(): Promise<{
           continue;
         }
 
-        // Extract official metadata and official media from the live webpage
-        const officialMeta = await extractOfficialPageMetadata(item.targetArticleUrl);
-        const effectiveDescription = officialMeta.description || item.fallbackDescription || '';
-        const realImage = officialMeta.imageUrl || item.feedImage || null;
+        // Extract the actual article body before any AI rewriting.
+        // The model receives this body as the factual ground truth and must not invent details.
+        const [officialMeta, extracted] = await Promise.all([
+          extractOfficialPageMetadata(item.targetArticleUrl),
+          extractArticleContent(item.targetArticleUrl),
+        ]);
+        const effectiveDescription = extracted.description || officialMeta.description || item.fallbackDescription || '';
+        const groundedBody = extracted.body || effectiveDescription;
+        const realImage = extracted.imageUrl || officialMeta.imageUrl || item.feedImage || null;
+
+        if (!groundedBody || groundedBody.trim().length < 120) {
+          db.updateSource(src.id, {
+            lastImport: new Date().toISOString(),
+            lastError: 'Skipped article because the source body could not be extracted reliably.',
+          });
+          continue;
+        }
 
         const draft = await generateEditorialDraft(
           item.topic,
           item.category,
           src.name,
           item.targetArticleUrl,
-          effectiveDescription
+          effectiveDescription,
+          groundedBody
         );
 
-        const photoConfig = PRESS_PHOTOS[item.category] || PRESS_PHOTOS.world;
-        const finalImage = realImage || photoConfig.url;
+        const fallbackVisual = realImage
+          ? null
+          : await resolveOrGenerateArticleImage({
+              title: item.topic,
+              description: effectiveDescription,
+              category: item.category,
+            });
+        const finalImage = realImage || fallbackVisual?.image || '';
 
         const archiveSnapshot = createArchiveSnapshot({
           headline: item.topic,
@@ -241,16 +163,16 @@ export async function runCrawlerCycle(): Promise<{
           officialImageUrl: realImage || undefined,
           archiveSnapshot,
           image: finalImage,
-          imageCredit: 'Newsroom Photo Archive / Press Pool',
-          imageProvenance: 'Official editorial press pool photography',
-          imageLicense: 'Editorial Press Archive',
-          status: 'published',
-          isBreaking: Math.random() < 0.2,
+          imageCredit: realImage ? 'Source-page image' : (fallbackVisual?.imageCredit || 'No image credit available'),
+          imageProvenance: realImage ? 'Extracted from the article page metadata/structured data' : (fallbackVisual?.imageProvenance || 'No image available'),
+          imageLicense: realImage ? 'Use subject to publisher/media rights' : (fallbackVisual?.imageLicense || 'Unknown'),
+          status: extracted.quality === 'full' && Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
+          isBreaking: false,
           isPinned: false,
           priority: 5,
-          views: Math.floor(Math.random() * 180) + 45,
-          shares: Math.floor(Math.random() * 30) + 5,
-          publishedAt: new Date().toISOString(),
+          views: 0,
+          shares: 0,
+          publishedAt: extracted.publishedAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           byline: item.byline,
           translations: draft.translations,

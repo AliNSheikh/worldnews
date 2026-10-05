@@ -45,8 +45,16 @@ Write an authentic, highly credible journalistic report optimized for Google New
 
 OFFICIAL WIRE HEADLINE: "${prompt}"
 ${rawDescription ? `OFFICIAL NEWS WIRE DESCRIPTION / LEAD:\n"${rawDescription}"\n` : ''}
-${archivedContext ? `ADDITIONAL CONTEXT:\n"${archivedContext}"\n` : ''}
+${archivedContext ? `SOURCE ARTICLE BODY (FACTUAL GROUND TRUTH):\n"${archivedContext}"\n` : ''}
 CANONICAL SOURCE: ${sourceName} (${sourceUrl})
+
+STRICT FACTUAL-GROUNDING RULES:
+- Use ONLY facts explicitly present in the headline, description, and SOURCE ARTICLE BODY above.
+- Do not invent quotations, people, dates, amounts, locations, reactions, timelines, causes, consequences, or background details.
+- If the source body is short, produce a short article. Never pad missing information with generic diplomatic, financial, scientific, or political filler.
+- Reframe the headline without changing its event, actors, meaning, certainty, or scope.
+- Translate the same verified facts into every supported language; do not add language-specific facts.
+- Never include the source publication name or source URL in public-facing title, summary, body, SEO title, meta description, FAQ, tags, or image alt text.
 
 CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
 1. **Title Optimization for Google News & SEO**:
@@ -222,6 +230,8 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
           if (parsed.translations[lang]) {
             parsed.translations[lang].language = lang;
             parsed.translations[lang].translationStatus = 'complete';
+            parsed.translations[lang].tags = (parsed.translations[lang].keywords || []).slice(0, 5);
+            parsed.translations[lang].focusKeyphrase = parsed.translations[lang].keywords?.[0] || '';
             parsed.translations[lang].executiveSummary = sanitizeBoldFormatting(parsed.translations[lang].executiveSummary || '');
             parsed.translations[lang].structuredBody = sanitizeBoldFormatting(parsed.translations[lang].structuredBody || '');
           }
@@ -240,117 +250,40 @@ CRITICAL EDITORIAL & SEO RANKING GUIDELINES (GOOGLE NEWS COMPLIANT):
     }
   }
 
-  // Graceful editorial fallback generator if API key not yet set or model call fails
-  const safeSlug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 48) || 'breaking-news';
-  const enSummary = rawDescription
-    ? `${rawDescription.slice(0, 220)}...`
-    : `World News diplomatic and economic desks are monitoring unfolding developments regarding ${prompt}. Verified sources confirm preliminary coordination across multilateral agencies.`;
-  const arSummary = rawDescription
-    ? `أفادت النشرات الإخبارية العاجلة: ${rawDescription.slice(0, 220)}... وتواصل غرف التحرير متابعة مجريات الأحداث.`
-    : `تتابع غرفة أخبار العالم التطورات الجارية بشأن ${prompt}. وتؤكد مصادر موثقة بدء التنسيق الدبلوماسي بين الوكالات متعددة الأطراف.`;
+  // Safe fallback: preserve only extracted source facts and require editorial review.
+  // If Gemini is unavailable, do not manufacture translations or additional reporting.
+  const safeSlug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 64) || 'news-report';
+  const groundedText = sanitizeBoldFormatting((archivedContext || rawDescription || prompt).trim());
+  const groundedSummary = sanitizeBoldFormatting((rawDescription || groundedText).trim()).slice(0, 220);
+  const languages: LanguageCode[] = ['en', 'ar', 'de', 'es', 'fr'];
+
+  const translations = languages.reduce<Record<LanguageCode, ArticleTranslation>>((acc, lang) => {
+    acc[lang] = {
+      language: lang,
+      title: prompt,
+      slug: lang === 'en' ? safeSlug : `${safeSlug}-${lang}`,
+      executiveSummary: groundedSummary,
+      structuredBody: groundedText,
+      seoTitle: prompt.slice(0, 70),
+      metaDescription: groundedSummary.slice(0, 160),
+      keywords: [category],
+      tags: [category],
+      focusKeyphrase: category,
+      imageAlt: prompt,
+      faq: [],
+      translationStatus: 'needs-review',
+      entities: [],
+    };
+    return acc;
+  }, {} as Record<LanguageCode, ArticleTranslation>);
 
   return {
     category,
     originalSource: sourceName,
     originalUrl: sourceUrl,
-    imageAlt: `Editorial report coverage on ${prompt}`,
-    translations: {
-      en: {
-        language: 'en',
-        title: prompt,
-        slug: safeSlug,
-        executiveSummary: enSummary,
-        structuredBody: `## Overview of Developing Dispatches\n\n${rawDescription ? `**Official Wire Dispatch:** ${rawDescription}\n\n` : ''}Official representatives gathered today to review the immediate implications of the reported developments regarding **${prompt}**.\n\n### Strategic Implications\n\n- Cross-border coordination mechanisms activated immediately.\n- Sovereign working groups scheduled to convene for follow-up review.\n- Financial and operational safeguards deployed to ensure continuity.\n\n> "Transparency and verified source reporting remain the priority as international observers assess long-term outcomes."`,
-        seoTitle: `${prompt} | World News International Dispatch`,
-        metaDescription: enSummary.slice(0, 155),
-        keywords: [category, 'Global Affairs', 'Developing Story', 'World News'],
-        imageAlt: `Official briefing photo regarding ${prompt}`,
-        faq: [
-          {
-            question: 'What is the immediate timeline for further disclosures?',
-            answer: 'A formal multilateral joint communiqué is anticipated within the next 48 hours following committee deliberations.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News Bureau', 'International Secretariat'],
-      },
-      ar: {
-        language: 'ar',
-        title: `تطورات دولية: ${prompt}`,
-        slug: `${safeSlug}-ar`,
-        executiveSummary: arSummary,
-        structuredBody: `## متابعة حية لآخر التطورات\n\n${rawDescription ? `**البرقية الإخبارية الموثقة:** ${rawDescription}\n\n` : ''}عقد ممثلون دوليون اجتماعاً عاجلاً اليوم لبحث التداعيات المباشرة للتقارير الواردة حول **${prompt}**.\n\n### المحاور الاستراتيجية الرئيسية\n\n- تفعيل آليات التنسيق المشترك عبر الحدود.\n- تشكيل فرق عمل فنية لمتابعة المخرجات الميدانية.\n- اتخاذ تدابير حوكمة لضمان استقرار العمليات المؤسسية.\n\n> وأكدت مصادر مسؤولة أن التحقق الدقيق من المصادر يظل المعيار الأساسي لتقييم النتائج طويلة الأمد.`,
-        seoTitle: `${prompt} | تغطية إخبارية دولية من أخبار العالم`,
-        metaDescription: arSummary.slice(0, 155),
-        keywords: [category, 'شؤون دولية', 'عاجل', 'أخبار العالم'],
-        imageAlt: `صورة المؤتمر الصحفي حول ${prompt}`,
-        faq: [
-          {
-            question: 'ما هو الجدول الزمني للمستجدات القادمة؟',
-            answer: 'من المتوقع صدور بيان مشترك رسمي خلال الساعات الثماني والأربعين القادمة.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['غرفة أخبار العالم', 'الأمانة الدولية'],
-      },
-      de: {
-        language: 'de',
-        title: `Aktuelle Entwicklungen: ${prompt}`,
-        slug: `${safeSlug}-de`,
-        executiveSummary: `World News berichtet über die jüngsten internationalen Weichenstellungen bezüglich ${prompt}. Erste Verhandlungen haben begonnen.`,
-        structuredBody: `## Hintergrund und aktuelle Lage\n\nInternationale Delegationen haben heute erste Abstimmungsgespräche zu **${prompt}** aufgenommen. Weitere offizielle Stellungnahmen werden erwartet.`,
-        seoTitle: `${prompt} | World News Internationale Berichte`,
-        metaDescription: `Aktuelle internationale Berichterstattung und Analysen zu ${prompt} bei World News.`,
-        keywords: [category, 'Weltgeschehen', 'Aktuell'],
-        imageAlt: `Pressekonferenz zu ${prompt}`,
-        faq: [
-          {
-            question: 'Wann folgen weitere Berichte?',
-            answer: 'Eine offizielle gemeinsame Erklärung wird in Kürze erwartet.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News Bureau'],
-      },
-      es: {
-        language: 'es',
-        title: `Desarrollo de noticias: ${prompt}`,
-        slug: `${safeSlug}-es`,
-        executiveSummary: `La redacción de World News sigue de cerca la evolución informativa en torno a ${prompt}. Se han activado mecanismos de consulta.`,
-        structuredBody: `## Panorama general de los acontecimientos\n\nRepresentantes diplomáticos e institucionales han mantenido hoy contactos preliminares para evaluar el alcance de los hechos relacionados con **${prompt}**.`,
-        seoTitle: `${prompt} | World News Cobertura Internacional`,
-        metaDescription: `Cobertura y análisis internacional en torno a ${prompt} por la redacción de World News.`,
-        keywords: [category, 'Actualidad', 'Última hora'],
-        imageAlt: `Imagen informativa sobre ${prompt}`,
-        faq: [
-          {
-            question: '¿Cuándo habrá un comunicado oficial?',
-            answer: 'Se prevé una comparecencia conjunta en las próximas horas.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News'],
-      },
-      fr: {
-        language: 'fr',
-        title: `Développements internationaux : ${prompt}`,
-        slug: `${safeSlug}-fr`,
-        executiveSummary: `La rédaction de World News analyse les répercussions immédiates concernant ${prompt}. Les premières concertations multilatérales sont en cours.`,
-        structuredBody: `## Point sur les faits marquants\n\nLes chancelleries et experts internationaux se sont réunis aujourd’hui pour examiner les suites opérationnelles relatives à **${prompt}**.`,
-        seoTitle: `${prompt} | Dépêche internationale World News`,
-        metaDescription: `Analyses et reportages internationaux sur ${prompt} par la rédaction de World News.`,
-        keywords: [category, 'Monde', 'Dépêches'],
-        imageAlt: `Photographie de presse illustrant ${prompt}`,
-        faq: [
-          {
-            question: 'Quel est le calendrier attendu ?',
-            answer: 'Un communiqué de presse conjoint est attendu sous 48 heures.',
-          },
-        ],
-        translationStatus: 'complete',
-        entities: ['World News'],
-      },
-    },
+    imageAlt: prompt,
+    imagePromptDescription: prompt,
+    translations,
   };
 }
 

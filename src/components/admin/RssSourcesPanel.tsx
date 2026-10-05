@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Rss, CheckCircle2, AlertCircle, RefreshCw, Plus, Play, Shield, ShieldCheck, Globe, Trash2, Sparkles, Video, Camera, Archive } from 'lucide-react';
+import { Rss, CheckCircle2, AlertCircle, RefreshCw, Plus, Play, Shield, ShieldCheck, Globe, Trash2, Sparkles, Video, Camera, Archive, Pencil } from 'lucide-react';
 import { NewsSource, Category } from '../../types';
 
 interface RssSourcesPanelProps {
@@ -22,11 +22,12 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
 
   // New source form state
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newRssUrl, setNewRssUrl] = useState('');
   const [newCategory, setNewCategory] = useState('world');
   const [newTrustLevel, setNewTrustLevel] = useState<NewsSource['trustLevel']>('verified');
-  const [newInterval, setNewInterval] = useState(30);
+  const [newInterval, setNewInterval] = useState(60);
 
   const handleTestSource = async (id: string) => {
     try {
@@ -97,32 +98,52 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
     }
   };
 
+  const resetSourceForm = () => {
+    setEditingId(null);
+    setNewName('');
+    setNewRssUrl('');
+    setNewCategory('world');
+    setNewTrustLevel('verified');
+    setNewInterval(60);
+    setShowAddForm(false);
+  };
+
+  const startEditSource = (source: NewsSource) => {
+    setEditingId(source.id);
+    setNewName(source.name);
+    setNewRssUrl(source.rssUrl);
+    setNewCategory(source.category || 'world');
+    setNewTrustLevel(source.trustLevel);
+    setNewInterval(Math.max(60, source.fetchIntervalMinutes || 60));
+    setShowAddForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newRssUrl.trim()) return;
 
     try {
-      await fetch('/api/sources', {
-        method: 'POST',
+      const existing = editingId ? sources.find((source) => source.id === editingId) : null;
+      const res = await fetch(editingId ? `/api/sources/${editingId}` : '/api/sources', {
+        method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newName.trim(),
           rssUrl: newRssUrl.trim(),
           category: newCategory,
           trustLevel: newTrustLevel,
-          isActive: true,
-          fetchIntervalMinutes: newInterval,
-          language: 'en',
-          articlesCount: 0,
+          isActive: existing?.isActive ?? true,
+          fetchIntervalMinutes: Math.max(60, newInterval),
+          language: existing?.language || 'en',
+          articlesCount: existing?.articlesCount || 0,
         }),
       });
-
-      setNewName('');
-      setNewRssUrl('');
-      setShowAddForm(false);
+      if (!res.ok) throw new Error('Failed to save source');
+      resetSourceForm();
       onRefreshSources();
     } catch (err) {
-      console.error('Failed to add source:', err);
+      console.error('Failed to save source:', err);
     }
   };
 
@@ -211,7 +232,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
       {/* Add Source Form */}
       {showAddForm && (
         <form onSubmit={handleAddSource} className="bg-slate-50 border border-slate-200 p-5 rounded-2xl space-y-4">
-          <h4 className="text-sm font-bold text-slate-900">Configure New RSS Wire Source</h4>
+          <h4 className="text-sm font-bold text-slate-900">{editingId ? 'Edit RSS Wire Source' : 'Configure New RSS Wire Source'}</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Source Name *</label>
@@ -269,7 +290,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+              onClick={resetSourceForm}
               className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
             >
               Cancel
@@ -278,7 +299,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
               type="submit"
               className="px-4 py-1.5 text-xs font-bold bg-sky-700 hover:bg-sky-800 text-white rounded-lg"
             >
-              Save Source
+              {editingId ? 'Update Source' : 'Save Source'}
             </button>
           </div>
         </form>
@@ -374,6 +395,14 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
                       className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                     >
                       {isImporting ? 'Ingesting...' : 'Import Now'}
+                    </button>
+
+                    <button
+                      onClick={() => startEditSource(src)}
+                      className="p-1.5 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer"
+                      title="Edit wire feed"
+                    >
+                      <Pencil className="w-4 h-4" />
                     </button>
 
                     <button
