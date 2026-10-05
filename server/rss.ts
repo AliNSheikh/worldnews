@@ -195,7 +195,7 @@ export function generateNewsSitemapXml(origin: string): string {
   const articles = db
     .getArticles({ status: 'published' })
     .filter((article) => new Date(article.publishedAt).getTime() >= cutoff)
-    .slice(0, 1000);
+    .slice(0, 200);
   const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   const settings = db.getSettings();
 
