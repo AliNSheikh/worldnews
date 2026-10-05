@@ -73,23 +73,30 @@ class NewsroomDatabase {
 
     const snapshot = await persistence.loadSnapshot();
 
-    if (snapshot.articles.length > 0) {
-      this.articles = cleanArticlesBoldFormatting(snapshot.articles);
-    }
+    // When persistent storage is enabled, never publish bundled demo articles.
+    this.articles = snapshot.articles.length > 0
+      ? cleanArticlesBoldFormatting(snapshot.articles)
+      : [];
+
     if (snapshot.categories.length > 0) {
       this.categories = snapshot.categories;
+    } else {
+      await Promise.all(this.categories.map((category) => persistence.upsertCategory(category)));
     }
+
     if (snapshot.sources.length > 0) {
       this.sources = snapshot.sources;
+    } else {
+      await Promise.all(this.sources.map((source) => persistence.upsertSource(source)));
     }
-    if (snapshot.comments.length > 0) {
-      this.comments = snapshot.comments;
-    }
-    if (snapshot.logs.length > 0) {
-      this.logs = snapshot.logs;
-    }
+
+    this.comments = snapshot.comments;
+    this.logs = snapshot.logs;
+
     if (snapshot.settings) {
       this.settings = snapshot.settings;
+    } else {
+      await persistence.upsertSettings(this.settings);
     }
 
     console.info(
