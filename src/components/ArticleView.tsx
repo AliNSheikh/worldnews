@@ -735,12 +735,6 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                     {article.archiveSnapshot?.archivedAt ? new Date(article.archiveSnapshot.archivedAt).toUTCString() : new Date().toUTCString()}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                  <span className="text-slate-500 font-medium">Originating Wire Agency:</span>
-                  <span className="font-semibold text-slate-900">
-                    {article.originalSource}
-                  </span>
-                </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-slate-500 font-medium">Copyright & Anti-Hotlink Protection:</span>
                   <span className="text-emerald-700 font-semibold">
