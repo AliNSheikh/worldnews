@@ -252,6 +252,14 @@ async function startServer() {
 
   app.post('/api/crawler/run-now', async (req, res) => {
     try {
+      const configuredSecret = process.env.CRON_SECRET;
+      if (configuredSecret) {
+        const auth = req.get('authorization') || '';
+        if (auth !== `Bearer ${configuredSecret}`) {
+          return res.status(401).json({ error: 'Unauthorized scheduler request.' });
+        }
+      }
+
       const result = await runCrawlerCycle();
       res.json(result);
     } catch (err: unknown) {
