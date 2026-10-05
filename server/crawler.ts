@@ -250,6 +250,7 @@ export async function runCrawlerCycle(): Promise<{
       message: `Hourly crawl encountered an error: ${errorMsg}`,
     };
   } finally {
+    await db.flush();
     state.isCurrentlyRunning = false;
   }
 }
