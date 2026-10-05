@@ -130,7 +130,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
 
     // Update SEO & Structured Data
     updatePageSEO({
-      title: trans.title,
+      title: trans.seoTitle || trans.title,
       description: trans.metaDescription || trans.executiveSummary,
       lang: currentLang,
       canonicalPath: `/${currentLang}/news/${article.category}/${trans.slug}`,
