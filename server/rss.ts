@@ -4,6 +4,7 @@ import { generateEditorialDraft } from './gemini';
 import { Article, LanguageCode } from '../src/types';
 import { resolveAuthenticSourceLink, isDummyOrPlaceholderUrl } from './sourceVerification';
 import { resolveVideoMetadata, resolveOrGenerateArticleImage } from './mediaResolver';
+import { extractArticleContent } from './articleExtractor';
 import {
   extractOfficialPageMetadata,
   createArchiveSnapshot,
@@ -387,9 +388,21 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           continue;
         }
 
-        // Crawl and extract official webpage metadata (official description, official real image, video)
-        const officialMeta = await extractOfficialPageMetadata(targetUrl);
-        const finalDescription = officialMeta.description || itemDescription || targetTitle;
+        // Crawl the live article page and extract both metadata and the real article body.
+        const [officialMeta, extracted] = await Promise.all([
+          extractOfficialPageMetadata(targetUrl),
+          extractArticleContent(targetUrl),
+        ]);
+        const finalDescription = extracted.description || officialMeta.description || itemDescription || targetTitle;
+        const groundedBody = extracted.body || finalDescription;
+
+        if (!groundedBody || groundedBody.trim().length < 120) {
+          db.updateSource(src.id, {
+            lastImport: new Date().toISOString(),
+            lastError: 'Skipped article because the source body could not be extracted reliably.',
+          });
+          continue;
+        }
 
         // Detect video presence in the feed item or official page
         let videoCandidate: string | null = officialMeta.videoUrl || null;
@@ -419,7 +432,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         const videoMeta = videoCandidate ? resolveVideoMetadata(videoCandidate) : null;
 
         // Detect real original image from feed item or official source page
-        let extractedImage: string | null = officialMeta.imageUrl || null;
+        let extractedImage: string | null = extracted.imageUrl || officialMeta.imageUrl || null;
         if (!extractedImage && feedItem.imageUrl) {
           extractedImage = feedItem.imageUrl;
         }
@@ -461,7 +474,8 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           targetCategory,
           src.name,
           targetUrl,
-          finalDescription
+          finalDescription,
+          groundedBody
         );
 
         // Create permanent digital archive snapshot for the article
@@ -485,13 +499,13 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: 'published',
-          isBreaking: totalImported === 0,
+          status: Object.values(draft.translations).every((t) => t.translationStatus === 'complete') ? 'published' : 'review',
+          isBreaking: false,
           isPinned: false,
           priority: 5,
-          views: Math.floor(Math.random() * 150) + 50,
-          shares: Math.floor(Math.random() * 25) + 5,
-          publishedAt: rawPubDate,
+          views: 0,
+          shares: 0,
+          publishedAt: extracted.publishedAt || rawPubDate,
           updatedAt: new Date().toISOString(),
           byline: 'World News International Bureau',
           translations: draft.translations,
