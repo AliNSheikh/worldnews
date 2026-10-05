@@ -141,7 +141,6 @@ export async function runCrawlerCycle(): Promise<{
               title: item.topic,
               description: effectiveDescription,
               category: item.category,
-              videoThumbnail: officialMeta.videoUrl ? undefined : item.feedVideo,
             });
         const finalImage = realImage || fallbackVisual?.image || '';
 
