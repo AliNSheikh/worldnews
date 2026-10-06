@@ -10,6 +10,7 @@ const TABLES = {
   articles: 'newsroom_articles',
   sources: 'newsroom_sources',
   logs: 'newsroom_logs',
+  settings: 'newsroom_settings',
 };
 const LANGS = ['en', 'ar', 'de', 'es', 'fr'] as const;
 type Lang = (typeof LANGS)[number];
@@ -413,29 +414,157 @@ function sourceTranslation(
   };
 }
 
+
+function splitTranslationText(value: string, max = 3500): string[] {
+  const text = String(value || '').trim();
+  if (!text) return [''];
+  const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    if (current.trim()) chunks.push(current.trim());
+    current = '';
+  };
+
+  for (const paragraph of paragraphs.length ? paragraphs : [text]) {
+    if (paragraph.length > max) {
+      pushCurrent();
+      const words = paragraph.split(/\s+/);
+      let piece = '';
+      for (const word of words) {
+        const next = piece ? `${piece} ${word}` : word;
+        if (next.length > max && piece) {
+          chunks.push(piece);
+          piece = word;
+        } else {
+          piece = next;
+        }
+      }
+      if (piece) chunks.push(piece);
+      continue;
+    }
+
+    const next = current ? `${current}\n\n${paragraph}` : paragraph;
+    if (next.length > max) {
+      pushCurrent();
+      current = paragraph;
+    } else {
+      current = next;
+    }
+  }
+  pushCurrent();
+  return chunks.length ? chunks : [''];
+}
+
+async function translateBundle(
+  sourceLang: Lang,
+  targetLang: Lang,
+  title: string,
+  description: string,
+  body: string
+) {
+  if (sourceLang === targetLang) return { title, description, body };
+
+  const apiKey = String(
+    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY || ''
+  ).trim();
+  if (!apiKey) {
+    throw new Error(
+      'Translation is not configured. Set GOOGLE_TRANSLATE_API_KEY (preferred) or use a Google API key with Cloud Translation enabled.'
+    );
+  }
+
+  const bodyChunks = splitTranslationText(body);
+  const q = [title, description, ...bodyChunks];
+  const response = await fetch(
+    `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        q,
+        source: sourceLang,
+        target: targetLang,
+        format: 'text',
+      }),
+      signal: AbortSignal.timeout(30000),
+    }
+  );
+
+  const raw = await response.text();
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = raw;
+  }
+
+  if (!response.ok) {
+    const detail =
+      typeof parsed === 'string'
+        ? parsed
+        : parsed?.error?.message || parsed?.message || JSON.stringify(parsed);
+    throw new Error(`Cloud Translation ${response.status}: ${detail || response.statusText}`);
+  }
+
+  const translated = Array.isArray(parsed?.data?.translations)
+    ? parsed.data.translations.map((item: any) => decodeEntities(item?.translatedText || ''))
+    : [];
+
+  if (translated.length < 2) {
+    throw new Error('Cloud Translation returned an incomplete response.');
+  }
+
+  return {
+    title: translated[0] || title,
+    description: translated[1] || description,
+    body: translated.slice(2).join('\n\n') || description || body,
+  };
+}
+
+function configuredLanguages(settingsRows: any[]): Lang[] {
+  const raw = settingsRows?.[0]?.enabledLanguages;
+  if (!Array.isArray(raw)) return [...LANGS];
+  const langs = raw
+    .map((value: unknown) => normalizeLang(value))
+    .filter((value: Lang, index: number, array: Lang[]) => array.indexOf(value) === index);
+  return langs.length ? langs : [...LANGS];
+}
+
 async function writeLog(
   source: string,
   status: 'success' | 'failed' | 'warning',
   importedCount: number,
-  errorMessage: string | null
+  errorMessage: string | null,
+  startedAt = new Date().toISOString()
 ) {
-  const now = new Date().toISOString();
+  const completedAt = new Date().toISOString();
   const entry = {
     id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     jobType: 'rss_sync',
     source,
-    startedAt: now,
-    completedAt: now,
+    startedAt,
+    completedAt,
     status,
     errorMessage,
     importedCount,
   };
   await upsert(TABLES.logs, entry.id, entry);
+  return entry;
 }
 
-async function processSource(source: any, existingArticles: any[], maxNew: number) {
+async function processSource(
+  source: any,
+  existingArticles: any[],
+  maxNew: number,
+  enabledLanguages: Lang[]
+) {
   const diagnostics: string[] = [];
   let imported = 0;
+  const failedUrls = new Set<string>(
+    Array.isArray(source.failedUrls) ? source.failedUrls.filter(Boolean) : []
+  );
 
   try {
     const xml = await fetchText(
@@ -448,18 +577,15 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
     );
     if (!items.length) throw new Error('Feed returned no parseable RSS/Atom items.');
 
-    for (const item of items.slice(0, 20)) {
-      if (imported >= maxNew) break;
-      if (existingArticles.some((article) => article.originalUrl === item.link)) continue;
+    const existingUrls = new Set(
+      existingArticles.map((article) => String(article.originalUrl || '')).filter(Boolean)
+    );
+    const candidates = items.filter(
+      (item) => !existingUrls.has(item.link) && !failedUrls.has(item.link)
+    );
+    const batch = candidates.slice(0, Math.max(1, maxNew));
 
-      const itemDate = new Date(item.pubDate);
-      if (
-        Number.isFinite(itemDate.getTime()) &&
-        Date.now() - itemDate.getTime() > 14 * 86400000
-      ) {
-        continue;
-      }
-
+    for (const item of batch) {
       try {
         let page = { description: '', imageUrl: '', articleText: '', author: '' };
         try {
@@ -479,6 +605,7 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
             .sort((a, b) => b.length - a.length)[0] || description;
 
         if (!title || sourceBody.length < 40) {
+          failedUrls.add(item.link);
           diagnostics.push(`${item.title}: skipped because source text was unavailable.`);
           continue;
         }
@@ -488,6 +615,7 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
         const translations: Record<Lang, any> = Object.fromEntries(
           LANGS.map((lang) => [lang, emptyTranslation(lang, id)])
         ) as Record<Lang, any>;
+
         translations[sourceLanguage] = sourceTranslation(
           sourceLanguage,
           id,
@@ -496,6 +624,39 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
           sourceBody,
           title
         );
+
+        const targets = enabledLanguages.filter((lang) => lang !== sourceLanguage);
+        const translationResults = await Promise.allSettled(
+          targets.map(async (targetLang) => ({
+            targetLang,
+            translated: await translateBundle(
+              sourceLanguage,
+              targetLang,
+              title,
+              description,
+              sourceBody
+            ),
+          }))
+        );
+
+        translationResults.forEach((result, index) => {
+          const targetLang = targets[index];
+          if (result.status === 'fulfilled') {
+            const translated = result.value.translated;
+            translations[targetLang] = sourceTranslation(
+              targetLang,
+              id,
+              translated.title,
+              translated.description,
+              translated.body,
+              translated.title
+            );
+          } else {
+            diagnostics.push(
+              `${item.title}: ${targetLang.toUpperCase()} translation pending: ${result.reason?.message || result.reason}`
+            );
+          }
+        });
 
         const image =
           absoluteUrl(page.imageUrl, item.link) ||
@@ -523,8 +684,8 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
           priority: 5,
           views: 0,
           shares: 0,
-          publishedAt: Number.isFinite(itemDate.getTime())
-            ? itemDate.toISOString()
+          publishedAt: Number.isFinite(new Date(item.pubDate).getTime())
+            ? new Date(item.pubDate).toISOString()
             : new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           byline: page.author || source.name,
@@ -534,25 +695,29 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
 
         await upsert(TABLES.articles, article.id, article);
         existingArticles.unshift(article);
+        existingUrls.add(item.link);
         imported += 1;
       } catch (error: any) {
+        failedUrls.add(item.link);
         diagnostics.push(`${item.title}: ${error?.message || error}`);
       }
     }
 
+    const remaining = Math.max(0, candidates.length - batch.length);
     const updated = {
       ...source,
       lastImport: new Date().toISOString(),
-      lastError: diagnostics.length ? diagnostics.slice(-3).join(' | ') : null,
+      lastError: diagnostics.length ? diagnostics.slice(-5).join(' | ') : null,
       articlesCount: Number(source.articlesCount || 0) + imported,
+      failedUrls: [...failedUrls].slice(-200),
     };
     await upsert(TABLES.sources, source.id, updated);
 
-    return { imported, diagnostics, parsedItems: items.length };
+    return { imported, diagnostics, parsedItems: items.length, remaining };
   } catch (error: any) {
     const message = error?.message || String(error);
     await upsert(TABLES.sources, source.id, { ...source, lastError: message });
-    return { imported: 0, diagnostics: [message], parsedItems: 0 };
+    return { imported: 0, diagnostics: [message], parsedItems: 0, remaining: 0 };
   }
 }
 
@@ -560,6 +725,11 @@ export default async function handler(req: any, res: any) {
   const url = new URL(req.url || '/', 'https://local');
   const action = String(url.searchParams.get('action') || 'status');
   const sourceId = url.searchParams.get('id');
+  const requestedBatch = Math.min(
+    20,
+    Math.max(1, Number(url.searchParams.get('batch') || (action === 'import' ? 8 : 4)) || 4)
+  );
+  const cycleStartedAt = new Date().toISOString();
 
   try {
     const isCron = action === 'cron';
@@ -572,8 +742,19 @@ export default async function handler(req: any, res: any) {
       return json(res, 401, { error: 'Administrator authentication required.' });
     }
 
-    const sources = await listPayloads(TABLES.sources);
-    const articles = await listPayloads(TABLES.articles);
+    const [sources, articles, logs, settingsRows] = await Promise.all([
+      listPayloads(TABLES.sources),
+      listPayloads(TABLES.articles),
+      listPayloads(TABLES.logs),
+      listPayloads(TABLES.settings),
+    ]);
+    const enabledLanguages = configuredLanguages(settingsRows);
+    const sortedLogs = [...logs].sort(
+      (a, b) =>
+        new Date(b.completedAt || b.startedAt || 0).getTime() -
+        new Date(a.completedAt || a.startedAt || 0).getTime()
+    );
+    const latestLog = sortedLogs[0] || null;
 
     if (action === 'status') {
       return json(res, 200, {
@@ -582,9 +763,22 @@ export default async function handler(req: any, res: any) {
         ingestionMode: 'source-direct',
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
         geminiRequired: false,
+        translationProviderConfigured: Boolean(
+          process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
+        ),
+        enabledLanguages,
+        scheduler: 'appwrite-hourly-function',
         sourcesCount: sources.length,
         activeSourcesCount: sources.filter((source) => source.isActive !== false).length,
         articlesCount: articles.length,
+        totalArticlesIngested: articles.length,
+        lastRunTime: latestLog?.completedAt || latestLog?.startedAt || null,
+        lastImportedCount: latestLog?.importedCount || 0,
+        lastRunStatus: latestLog?.status || null,
+        lastRunDetails: latestLog?.errorMessage || null,
+        nextRunTime: latestLog?.completedAt
+          ? new Date(new Date(latestLog.completedAt).getTime() + 60 * 60 * 1000).toISOString()
+          : null,
         lastRuns: sources
           .filter((source) => source.lastImport)
           .map((source) => ({
@@ -636,42 +830,60 @@ export default async function handler(req: any, res: any) {
 
     let total = 0;
     const results: any[] = [];
-    const totalLimit = action === 'import' ? 4 : 10;
+    const perSourceBatch =
+      action === 'import'
+        ? requestedBatch
+        : Math.max(1, Math.ceil(requestedBatch / Math.max(1, selected.length)));
 
     for (const source of selected) {
-      if (total >= totalLimit) break;
       const result = await processSource(
         source,
         articles,
-        Math.min(action === 'import' ? 4 : 2, totalLimit - total)
+        perSourceBatch,
+        enabledLanguages
       );
       total += result.imported;
       results.push({ sourceId: source.id, source: source.name, ...result });
     }
 
+    const hasMore = results.some((result) => Number(result.remaining || 0) > 0);
     const errors = results.flatMap((result) => result.diagnostics || []);
-    await writeLog(
-      action === 'import' ? `Single Source Ingest (${sourceId})` : 'News Discover Source Crawler',
-      total > 0 ? 'success' : 'warning',
+    const log = await writeLog(
+      action === 'import'
+        ? `Single Source Ingest (${sourceId})`
+        : action === 'cron'
+        ? 'News Discover Hourly Automatic Fetch'
+        : 'News Discover Manual Fetch',
+      total > 0 ? 'success' : errors.length ? 'warning' : 'success',
       total,
-      total > 0
-        ? null
-        : errors.slice(0, 4).join(' | ') || 'No new eligible feed items were found.'
+      errors.length ? errors.slice(0, 5).join(' | ') : null,
+      cycleStartedAt
     );
 
-    return json(res, total > 0 ? 200 : 422, {
-      success: total > 0,
+    return json(res, 200, {
+      success: true,
       count: total,
       newArticlesCount: total,
       persisted: total,
-      ingestionMode: 'source-direct',
+      hasMore,
+      batchSize: requestedBatch,
+      ingestionMode: 'source-direct-multilingual',
+      enabledLanguages,
+      latestFetch: {
+        startedAt: log.startedAt,
+        completedAt: log.completedAt,
+        importedCount: log.importedCount,
+        status: log.status,
+      },
       results,
       message:
         total > 0
-          ? `Crawler fetched and persisted ${total} source-derived article(s) to Appwrite without Gemini.`
-          : `Crawler completed but did not persist an article. ${errors
-              .slice(0, 3)
-              .join(' | ') || 'No new eligible feed items were found.'}`,
+          ? `Crawler persisted ${total} article(s) in this batch. ${hasMore ? 'More unseen feed items remain and the scheduler will continue automatically.' : 'All currently available feed items are drained.'}`
+          : hasMore
+          ? 'This batch did not persist an article, but more unseen feed items remain for the next batch.'
+          : errors.length
+          ? `Crawler completed with warnings: ${errors.slice(0, 3).join(' | ')}`
+          : 'Crawler is up to date; no unseen feed items remain.',
     });
   } catch (error: any) {
     console.error('[direct-crawler]', error);
