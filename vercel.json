@@ -68,6 +68,10 @@
       "destination": "/api/direct-crawler?action=run"
     },
     {
+      "source": "/api/crawler/translate-pending",
+      "destination": "/api/direct-crawler?action=translate"
+    },
+    {
       "source": "/api/automation/run",
       "destination": "/api/direct-crawler?action=run"
     },
