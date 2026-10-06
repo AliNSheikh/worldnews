@@ -58,6 +58,7 @@ export interface Article {
   originalSource: string;
   originalUrl: string;
   originalDescription?: string;
+  sourceLanguage?: LanguageCode;
   officialImageUrl?: string;
   archiveSnapshot?: ArticleArchiveSnapshot;
   image: string;
@@ -155,6 +156,7 @@ export interface SiteSettings {
   autoIngestEnabled?: boolean;
   aiAssistanceEnabled?: boolean;
   editorialStatement: Record<LanguageCode, string>;
+  siteUrl?: string;
   googleSearchConsoleVerification: string;
   googleAnalyticsMeasurementId: string;
   heroSlides?: HeroSlide[];
