@@ -74,6 +74,22 @@ async function readJsonBody(req: any): Promise<Record<string, unknown>> {
   return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
 }
 
+function requireAdminOrReply(req: any, res: any): boolean {
+  if (isAdminRequest(req)) return true;
+  sendJson(res, 401, { error: 'Administrator authentication required.', code: 'ADMIN_REQUIRED' });
+  return false;
+}
+
+function sourceIdFrom(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function sourceActionFrom(pathname: string, action: 'test' | 'import'): string | null {
+  const match = pathname.match(new RegExp(`^/api/sources/([^/]+)/${action}$`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function handleAdminAuth(req: any, res: any, pathname: string): Promise<boolean> {
   const { adminPassword, adminSessionSecret } = getAdminConfig();
   const method = String(req.method || 'GET').toUpperCase();
@@ -145,7 +161,7 @@ async function handleDirectRuntimeRoutes(req: any, res: any, pathname: string): 
     ]);
     await db.ready();
 
-    sendJson(res, 200, {
+    sendJson(res, db.persistenceError ? 503 : 200, {
       status: db.persistenceError ? 'degraded' : 'healthy',
       time: new Date().toISOString(),
       articlesCount: db.articles.length,
@@ -159,11 +175,170 @@ async function handleDirectRuntimeRoutes(req: any, res: any, pathname: string): 
     return true;
   }
 
-  if (pathname === '/api/admin/persistence/sync' && method === 'POST') {
-    if (!isAdminRequest(req)) {
-      sendJson(res, 401, { error: 'Administrator authentication required.' });
+  if (pathname === '/api/articles' && method === 'GET') {
+    const { db } = await import('../server/db');
+    await db.refresh(0);
+    const url = new URL(req.url || '/', 'http://localhost');
+    sendJson(res, 200, db.getArticles({
+      category: url.searchParams.get('category') || undefined,
+      status: url.searchParams.get('status') || undefined,
+      search: url.searchParams.get('search') || undefined,
+    }));
+    return true;
+  }
+
+  if (pathname === '/api/categories' && method === 'GET') {
+    const { db } = await import('../server/db');
+    await db.refresh(0);
+    sendJson(res, 200, db.getCategories());
+    return true;
+  }
+
+  if (pathname === '/api/sources' && method === 'GET') {
+    const { db } = await import('../server/db');
+    await db.refresh(0);
+    sendJson(res, 200, db.getSources());
+    return true;
+  }
+
+  if (pathname === '/api/settings' && method === 'GET') {
+    const { db } = await import('../server/db');
+    await db.refresh(0);
+    sendJson(res, 200, db.getSettings());
+    return true;
+  }
+
+  if (pathname === '/api/logs' && method === 'GET') {
+    const { db } = await import('../server/db');
+    await db.refresh(0);
+    sendJson(res, 200, db.getLogs());
+    return true;
+  }
+
+  if (pathname === '/api/sources' && method === 'POST') {
+    if (!requireAdminOrReply(req, res)) return true;
+    try {
+      const body = await readJsonBody(req);
+      const name = String(body.name || '').trim();
+      const rssUrl = String(body.rssUrl || '').trim();
+      if (!name || !/^https?:\/\//i.test(rssUrl)) {
+        sendJson(res, 400, { error: 'Source name and a valid HTTP(S) RSS URL are required.' });
+        return true;
+      }
+
+      const { db } = await import('../server/db');
+      await db.refresh(0);
+      const created = db.addSource({
+        name,
+        rssUrl,
+        category: String(body.category || 'world'),
+        defaultLanguage: (body.defaultLanguage || body.language || 'en') as any,
+        language: String(body.language || body.defaultLanguage || 'en'),
+        trustLevel: (body.trustLevel || 'verified') as any,
+        isActive: body.isActive !== false,
+        lastImport: null,
+        lastError: null,
+        importFrequency: String(body.importFrequency || `Every ${Number(body.fetchIntervalMinutes || 60)} minutes`),
+        fetchIntervalMinutes: Math.max(5, Number(body.fetchIntervalMinutes || 60)),
+        articlesCount: Number(body.articlesCount || 0),
+      });
+      await db.flush();
+      await db.refresh(0);
+      sendJson(res, 201, created);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, 503, { error: message, code: 'SOURCE_CREATE_FAILED' });
+    }
+    return true;
+  }
+
+  const sourceId = sourceIdFrom(pathname);
+  if (sourceId && method === 'PUT') {
+    if (!requireAdminOrReply(req, res)) return true;
+    try {
+      const body = await readJsonBody(req);
+      const { db } = await import('../server/db');
+      await db.refresh(0);
+      const updated = db.updateSource(sourceId, body as any);
+      await db.flush();
+      await db.refresh(0);
+      sendJson(res, 200, updated);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, message.includes('not found') ? 404 : 503, { error: message, code: 'SOURCE_UPDATE_FAILED' });
+    }
+    return true;
+  }
+
+  if (sourceId && method === 'DELETE') {
+    if (!requireAdminOrReply(req, res)) return true;
+    try {
+      const { db } = await import('../server/db');
+      await db.refresh(0);
+      const deleted = db.deleteSource(sourceId);
+      if (!deleted) {
+        sendJson(res, 404, { error: 'Source not found.' });
+        return true;
+      }
+      await db.flush();
+      await db.refresh(0);
+      sendJson(res, 200, { success: true, id: sourceId });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, 503, { error: message, code: 'SOURCE_DELETE_FAILED' });
+    }
+    return true;
+  }
+
+  const testSourceId = sourceActionFrom(pathname, 'test');
+  if (testSourceId && method === 'POST') {
+    if (!requireAdminOrReply(req, res)) return true;
+    const [{ db }, { fetchAndParseRssFeed }] = await Promise.all([
+      import('../server/db'),
+      import('../server/rss'),
+    ]);
+    await db.refresh(0);
+    const source = db.getSources().find((item) => item.id === testSourceId);
+    if (!source) {
+      sendJson(res, 404, { error: 'Source not found.' });
       return true;
     }
+    const started = Date.now();
+    const items = await fetchAndParseRssFeed(source.rssUrl, 10000);
+    sendJson(res, items.length ? 200 : 422, {
+      success: items.length > 0,
+      parsedItems: items.length,
+      responseTimeMs: Date.now() - started,
+      sample: items.slice(0, 3),
+      message: items.length
+        ? `Connected to '${source.name}' and parsed ${items.length} feed items.`
+        : `No valid RSS/Atom items could be parsed from '${source.name}'.`,
+    });
+    return true;
+  }
+
+  const importSourceId = sourceActionFrom(pathname, 'import');
+  if (importSourceId && method === 'POST') {
+    if (!requireAdminOrReply(req, res)) return true;
+    try {
+      const [{ db }, { runRssImportJob }] = await Promise.all([
+        import('../server/db'),
+        import('../server/rss'),
+      ]);
+      await db.refresh(0);
+      const result = await runRssImportJob(importSourceId);
+      await db.flush();
+      await db.refresh(0);
+      sendJson(res, result.success ? 200 : 422, result);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, 500, { success: false, error: message, code: 'SOURCE_IMPORT_FAILED' });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/admin/persistence/sync' && method === 'POST') {
+    if (!requireAdminOrReply(req, res)) return true;
 
     const { db } = await import('../server/db');
     await db.ready();
@@ -188,16 +363,13 @@ async function handleDirectRuntimeRoutes(req: any, res: any, pathname: string): 
   }
 
   if ((pathname === '/api/crawler/run-now' || pathname === '/api/automation/run') && method === 'POST') {
-    if (!isAdminRequest(req)) {
-      sendJson(res, 401, { error: 'Administrator authentication required.' });
-      return true;
-    }
+    if (!requireAdminOrReply(req, res)) return true;
 
     const [{ db }, { runCrawlerCycle }] = await Promise.all([
       import('../server/db'),
       import('../server/crawler'),
     ]);
-    await db.ready();
+    await db.refresh(0);
     const result = await runCrawlerCycle();
     sendJson(res, result.success ? 200 : 422, result);
     return true;
@@ -216,7 +388,7 @@ async function handleDirectRuntimeRoutes(req: any, res: any, pathname: string): 
       import('../server/db'),
       import('../server/crawler'),
     ]);
-    await db.ready();
+    await db.refresh(0);
     const result = await runCrawlerCycle();
     sendJson(res, result.success ? 200 : 422, { ...result, ranAt: new Date().toISOString() });
     return true;
