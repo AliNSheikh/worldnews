@@ -93,12 +93,16 @@ function parseRow<T = any>(row: any): T | null {
   try { return JSON.parse(raw) as T; } catch { return null; }
 }
 
+function paginationQuery(method: 'limit' | 'offset', value: number): string {
+  return JSON.stringify({ method, values: [value] });
+}
+
 async function listPayloads(table: string): Promise<any[]> {
   const out: any[] = [];
   for (let offset = 0; offset < 10000; offset += 100) {
     const qs = new URLSearchParams();
-    qs.append('queries[]', 'limit(100)');
-    qs.append('queries[]', `offset(${offset})`);
+    qs.append('queries[]', paginationQuery('limit', 100));
+    qs.append('queries[]', paginationQuery('offset', offset));
     qs.set('total', 'false');
     qs.set('ttl', '0');
     const page = await aw(`${tablePath(table)}?${qs.toString()}`);
@@ -150,7 +154,7 @@ function normalizeArticle(input: Record<string, any>): any {
       imageAlt: String(t.imageAlt || title || 'World News article image'),
       faq: Array.isArray(t.faq) ? t.faq : [],
       translationStatus: t.translationStatus || 'draft',
-      entities: Array.isArray(t.entities) ? t.entities : [],
+      entities: Array.isArray(t.entities) ? t.entities.filter(Boolean) : [],
       ...(t.corrections ? { corrections: String(t.corrections) } : {}),
     };
   }

@@ -89,12 +89,16 @@ function parsePayload(row: any): any | null {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
+function paginationQuery(method: 'limit' | 'offset', value: number): string {
+  return JSON.stringify({ method, values: [value] });
+}
+
 async function listPayloads(table: string): Promise<any[]> {
   const output: any[] = [];
   for (let offset = 0; offset < 5000; offset += 100) {
     const qs = new URLSearchParams();
-    qs.append('queries[]', 'limit(100)');
-    qs.append('queries[]', `offset(${offset})`);
+    qs.append('queries[]', paginationQuery('limit', 100));
+    qs.append('queries[]', paginationQuery('offset', offset));
     qs.set('total', 'false');
     qs.set('ttl', '0');
     const result = await aw(`${tablePath(table)}?${qs.toString()}`);
