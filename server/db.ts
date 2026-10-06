@@ -2,14 +2,18 @@ import { Article, Category, Comment, NewsSource, AutomationLog, SiteSettings } f
 import {
   INITIAL_ARTICLES,
   INITIAL_CATEGORIES,
-  INITIAL_NEWS_SOURCES,
   INITIAL_COMMENTS,
   INITIAL_AUTOMATION_LOGS,
   INITIAL_SITE_SETTINGS,
 } from '../src/data/initialData';
+import { PRODUCTION_NEWS_SOURCES } from './productionSources';
 import { sanitizeBoldFormatting } from './gemini';
 import { createArchiveSnapshot } from './officialMediaAndArchive';
-import { isPersistenceConfigured, persistence } from './persistence';
+import {
+  getPersistenceProvider,
+  isPersistenceConfigured,
+  persistence,
+} from './persistence';
 
 function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
   return rawArticles.map((art) => {
@@ -48,18 +52,18 @@ function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
 class NewsroomDatabase {
   public articles: Article[] = cleanArticlesBoldFormatting([...INITIAL_ARTICLES]);
   public categories: Category[] = [...INITIAL_CATEGORIES];
-  public sources: NewsSource[] = [...INITIAL_NEWS_SOURCES];
+  public sources: NewsSource[] = PRODUCTION_NEWS_SOURCES.map((source) => ({ ...source }));
   public comments: Comment[] = [...INITIAL_COMMENTS];
   public logs: AutomationLog[] = [...INITIAL_AUTOMATION_LOGS];
   public settings: SiteSettings = { ...INITIAL_SITE_SETTINGS };
   public persistenceError: string | null = null;
 
-  // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
   private readyPromise: Promise<void> | null = null;
   private refreshPromise: Promise<void> | null = null;
   private lastHydratedAt = 0;
   private pendingWrites = new Set<Promise<unknown>>();
+  private pendingWriteErrors: string[] = [];
 
   public async ready(): Promise<void> {
     if (!this.readyPromise) {
@@ -68,9 +72,8 @@ class NewsroomDatabase {
         this.persistenceError = message;
         this.lastHydratedAt = Date.now();
 
-        // Do not let a database configuration problem take down unrelated API
-        // routes such as administrator authentication. Also do not expose the
-        // bundled demo articles when production persistence was expected.
+        // If persistent storage was expected but could not be reached, do not
+        // expose bundled demo articles as though they were production data.
         if (isPersistenceConfigured()) {
           this.articles = [];
           this.comments = [];
@@ -105,14 +108,15 @@ class NewsroomDatabase {
   private async hydrateFromPersistence(): Promise<void> {
     if (!isPersistenceConfigured()) {
       this.lastHydratedAt = Date.now();
-      this.persistenceError = null;
-      console.info('[World News DB] Persistent storage is not configured; using development seed data in memory.');
+      this.persistenceError = process.env.VERCEL
+        ? 'Persistent storage is not configured in Vercel. APPWRITE_API_KEY is required.'
+        : null;
+      console.warn('[World News DB] Persistent storage is not configured; using in-memory data.');
       return;
     }
 
     const snapshot = await persistence.loadSnapshot();
 
-    // When persistent storage is enabled, never publish bundled demo articles.
     this.articles = snapshot.articles.length > 0
       ? cleanArticlesBoldFormatting(snapshot.articles)
       : [];
@@ -142,14 +146,17 @@ class NewsroomDatabase {
     this.persistenceError = null;
 
     console.info(
-      `[World News DB] Hydrated persistent newsroom state: ${this.articles.length} articles, ${this.sources.length} sources.`
+      `[World News DB] Hydrated ${getPersistenceProvider()} state: ${this.articles.length} articles, ${this.sources.length} sources.`
     );
   }
 
   private queueWrite(write: Promise<unknown>): void {
     let tracked: Promise<unknown>;
     tracked = write
-      .catch((error) => {
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.persistenceError = message;
+        this.pendingWriteErrors.push(message);
         console.error('[World News DB] Persistence write failed:', error);
       })
       .finally(() => {
@@ -160,11 +167,64 @@ class NewsroomDatabase {
   }
 
   public async flush(): Promise<void> {
-    if (this.pendingWrites.size === 0) return;
-    await Promise.allSettled([...this.pendingWrites]);
+    if (this.pendingWrites.size > 0) {
+      await Promise.allSettled([...this.pendingWrites]);
+    }
+
+    if (this.pendingWriteErrors.length > 0) {
+      const uniqueErrors = [...new Set(this.pendingWriteErrors)];
+      this.pendingWriteErrors = [];
+      throw new Error(`Persistence synchronization failed: ${uniqueErrors.join(' | ')}`);
+    }
   }
 
-  // Articles
+  public async syncAllToPersistence(): Promise<{
+    provider: string;
+    articles: number;
+    categories: number;
+    sources: number;
+    comments: number;
+    logs: number;
+    settings: number;
+  }> {
+    if (!isPersistenceConfigured()) {
+      throw new Error(
+        'Persistent storage is not configured. Add APPWRITE_API_KEY to the active Vercel Production environment and redeploy.'
+      );
+    }
+
+    await Promise.all([
+      ...this.articles.map((article) => persistence.upsertArticle(article)),
+      ...this.categories.map((category) => persistence.upsertCategory(category)),
+      ...this.sources.map((source) => persistence.upsertSource(source)),
+      ...this.comments.map((comment) => persistence.upsertComment(comment)),
+      ...this.logs.map((log) => persistence.upsertLog(log)),
+      persistence.upsertSettings(this.settings),
+    ]);
+
+    this.persistenceError = null;
+    this.lastHydratedAt = Date.now();
+
+    return {
+      provider: getPersistenceProvider(),
+      articles: this.articles.length,
+      categories: this.categories.length,
+      sources: this.sources.length,
+      comments: this.comments.length,
+      logs: this.logs.length,
+      settings: 1,
+    };
+  }
+
+  public getPersistenceStatus() {
+    return {
+      provider: getPersistenceProvider(),
+      configured: isPersistenceConfigured(),
+      error: this.persistenceError,
+      lastHydratedAt: this.lastHydratedAt ? new Date(this.lastHydratedAt).toISOString() : null,
+    };
+  }
+
   public getArticles(filters?: { category?: string; status?: string; search?: string }): Article[] {
     let list = [...this.articles];
     if (filters?.status) {
@@ -175,16 +235,14 @@ class NewsroomDatabase {
     }
     if (filters?.search) {
       const q = filters.search.toLowerCase();
-      list = list.filter((a) => {
-        return (
-          Object.values(a.translations).some(
-            (t) =>
-              t.title.toLowerCase().includes(q) ||
-              t.executiveSummary.toLowerCase().includes(q) ||
-              t.keywords.some((k) => k.toLowerCase().includes(q))
-          ) || a.originalSource.toLowerCase().includes(q)
-        );
-      });
+      list = list.filter((a) =>
+        Object.values(a.translations).some(
+          (t) =>
+            t.title.toLowerCase().includes(q) ||
+            t.executiveSummary.toLowerCase().includes(q) ||
+            t.keywords.some((k) => k.toLowerCase().includes(q))
+        ) || a.originalSource.toLowerCase().includes(q)
+      );
     }
     return list.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   }
@@ -198,12 +256,10 @@ class NewsroomDatabase {
   }
 
   public createArticle(article: Article): Article {
-    // Check for duplicate original URL
     if (article.originalUrl && this.articles.some((a) => a.originalUrl === article.originalUrl)) {
       throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
     }
 
-    // Every localized article URL must be unique within its language edition.
     for (const [lang, translation] of Object.entries(article.translations)) {
       const baseSlug = (translation.slug || article.id)
         .toLowerCase()
@@ -232,9 +288,7 @@ class NewsroomDatabase {
 
   public updateArticle(id: string, updates: Partial<Article>): Article {
     const idx = this.articles.findIndex((a) => a.id === id);
-    if (idx === -1) {
-      throw new Error(`Article with id '${id}' not found.`);
-    }
+    if (idx === -1) throw new Error(`Article with id '${id}' not found.`);
     this.articles[idx] = {
       ...this.articles[idx],
       ...updates,
@@ -262,20 +316,14 @@ class NewsroomDatabase {
     return 0;
   }
 
-  // Comments
   public getComments(articleId?: string, status?: string): Comment[] {
     let list = [...this.comments];
-    if (articleId) {
-      list = list.filter((c) => c.articleId === articleId);
-    }
-    if (status) {
-      list = list.filter((c) => c.moderationStatus === status);
-    }
+    if (articleId) list = list.filter((c) => c.articleId === articleId);
+    if (status) list = list.filter((c) => c.moderationStatus === status);
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   public addComment(comment: Omit<Comment, 'id' | 'createdAt' | 'moderationStatus'>, clientIp = '127.0.0.1'): Comment {
-    // Rate limit: max 3 comments per minute from the same client
     const now = Date.now();
     const timestamps = this.commentRateLimits.get(clientIp) || [];
     const recent = timestamps.filter((t) => now - t < 60000);
@@ -285,25 +333,24 @@ class NewsroomDatabase {
     recent.push(now);
     this.commentRateLimits.set(clientIp, recent);
 
-    // Anti-spam check (simple basic checks for spam links or repetitive spam strings)
     const isSpam =
       comment.content.includes('http://spam') ||
       comment.content.includes('viagra') ||
       comment.content.includes('crypto-profit-guaranteed') ||
       comment.authorName.toLowerCase().includes('bot');
 
-    const status = isSpam
+    const moderationStatus: Comment['moderationStatus'] = isSpam
       ? 'spam'
       : this.settings.commentModeration === 'strict_approval'
-      ? 'pending'
-      : 'approved';
+        ? 'pending'
+        : 'approved';
 
     const newComment: Comment = {
       id: `comm-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       articleId: comment.articleId,
       authorName: comment.authorName.trim(),
       content: comment.content.trim(),
-      moderationStatus: status,
+      moderationStatus,
       createdAt: new Date().toISOString(),
       language: comment.language,
     };
@@ -315,15 +362,12 @@ class NewsroomDatabase {
 
   public updateCommentStatus(commentId: string, status: Comment['moderationStatus']): Comment {
     const comment = this.comments.find((c) => c.id === commentId);
-    if (!comment) {
-      throw new Error('Comment not found');
-    }
+    if (!comment) throw new Error('Comment not found');
     comment.moderationStatus = status;
     this.queueWrite(persistence.upsertComment(comment));
     return comment;
   }
 
-  // Sources
   public getSources(): NewsSource[] {
     return this.sources;
   }
@@ -337,10 +381,7 @@ class NewsroomDatabase {
   }
 
   public addSource(source: Omit<NewsSource, 'id'>): NewsSource {
-    const newSource: NewsSource = {
-      ...source,
-      id: `src-${Date.now()}`,
-    };
+    const newSource: NewsSource = { ...source, id: `src-${Date.now()}` };
     this.sources.push(newSource);
     this.queueWrite(persistence.upsertSource(newSource));
     return newSource;
@@ -354,7 +395,6 @@ class NewsroomDatabase {
     return deleted;
   }
 
-  // Categories
   public getCategories(): Category[] {
     return [...this.categories].sort((a, b) => a.sortOrder - b.sortOrder);
   }
@@ -367,7 +407,6 @@ class NewsroomDatabase {
     return this.categories[idx];
   }
 
-  // Settings
   public getSettings(): SiteSettings {
     return this.settings;
   }
@@ -378,7 +417,6 @@ class NewsroomDatabase {
     return this.settings;
   }
 
-  // Logs
   public addLog(log: Omit<AutomationLog, 'id'>): AutomationLog {
     const entry: AutomationLog = {
       ...log,
