@@ -738,6 +738,7 @@ async function backfillPendingTranslations(
         )
       ).length,
       diagnostics: ['Translation provider is not configured.'],
+      configured: false,
     };
   }
 
@@ -800,10 +801,19 @@ async function backfillPendingTranslations(
     }
   }
 
+  const failedStillPending = batch.filter((article) =>
+    enabledLanguages.some(
+      (lang) =>
+        !article?.translations?.[lang]?.title ||
+        article?.translations?.[lang]?.translationStatus !== 'complete'
+    )
+  ).length;
+
   return {
     updated,
-    remaining: Math.max(0, pending.length - batch.length),
+    remaining: Math.max(0, pending.length - batch.length) + failedStillPending,
     diagnostics,
+    configured: true,
   };
 }
 
@@ -944,9 +954,13 @@ export default async function handler(req: any, res: any) {
       enabledLanguages,
       Math.max(1, Math.ceil(requestedBatch / 2))
     );
+    const hasMoreTranslations =
+      translationBackfill.configured &&
+      translationBackfill.remaining > 0 &&
+      (translationBackfill.updated > 0 || translationBackfill.diagnostics.length === 0);
     const hasMore =
       results.some((result) => Number(result.remaining || 0) > 0) ||
-      translationBackfill.remaining > 0;
+      hasMoreTranslations;
     const errors = [
       ...results.flatMap((result) => result.diagnostics || []),
       ...translationBackfill.diagnostics,
