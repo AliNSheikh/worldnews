@@ -3,6 +3,7 @@ import { Search, X, Calendar, ArrowRight } from 'lucide-react';
 import { Article, Category, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { analytics } from '../utils/analytics';
+import { getArticleTranslation } from '../utils/articleTranslation';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     if (!query.trim()) return true;
 
     const q = query.toLowerCase();
-    const trans = article.translations[currentLang] || article.translations.en;
+    const trans = getArticleTranslation(article, currentLang);
 
     const titleMatch = trans.title.toLowerCase().includes(q);
     const summaryMatch = trans.executiveSummary.toLowerCase().includes(q);
