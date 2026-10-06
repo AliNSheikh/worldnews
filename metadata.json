@@ -1,6 +1,11 @@
 {
-  "name": "World News",
-  "description": "A credible 24/7 multilingual international digital newsroom serving readers in Arabic, English, German, Spanish, and French with real-time global reporting, rich video broadcasts, and verified archival coverage.",
+  "name": "News Discover",
+  "description": "A source-driven international news discovery platform with hourly ingestion, original source media metadata, dynamic search, and crawlable SEO endpoints.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "SOURCE_DIRECT_RSS_INGESTION",
+    "DYNAMIC_APPWRITE_SITEMAP",
+    "GOOGLE_ANALYTICS_4",
+    "GOOGLE_SEARCH_CONSOLE"
+  ]
 }
