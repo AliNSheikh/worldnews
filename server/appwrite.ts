@@ -1,8 +1,12 @@
 import crypto from 'crypto';
 import { Client, TablesDB } from 'node-appwrite';
 
-export const APPWRITE_ENDPOINT = (process.env.APPWRITE_ENDPOINT || '').replace(/\/$/, '');
-export const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID || '';
+// Non-secret defaults for the connected World News Appwrite project.
+// APPWRITE_API_KEY intentionally remains environment-only.
+export const APPWRITE_ENDPOINT = (
+  process.env.APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1'
+).replace(/\/$/, '');
+export const APPWRITE_PROJECT_ID = process.env.APPWRITE_PROJECT_ID || '6ac4bf0d00093b81fef7';
 export const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY || '';
 export const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'worldnews';
 
@@ -24,7 +28,7 @@ export function isAppwriteConfigured(): boolean {
 export function getAppwriteTablesDb(): TablesDB {
   if (!isAppwriteConfigured()) {
     throw new Error(
-      'Appwrite is not configured. Set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY, and APPWRITE_DATABASE_ID.'
+      'Appwrite is not configured. Set APPWRITE_API_KEY. APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, and APPWRITE_DATABASE_ID have project defaults but can still be overridden.'
     );
   }
 
