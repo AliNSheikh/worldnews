@@ -35,7 +35,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
 }) => {
   const [commentMod, setCommentMod] = useState(settings.commentModeration);
   const [autoIngest, setAutoIngest] = useState(settings.autoIngestEnabled);
-  const [aiAssistance, setAiAssistance] = useState(settings.aiAssistanceEnabled);
 
   // Contact Info State
   const [deskEmail, setDeskEmail] = useState(settings.contactInfo.email || '');
@@ -60,7 +59,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
       await onUpdateSettings({
         commentModeration: commentMod,
         autoIngestEnabled: autoIngest,
-        aiAssistanceEnabled: aiAssistance,
+        aiAssistanceEnabled: false,
         contactInfo: {
           ...settings.contactInfo,
           email: deskEmail.trim(),
@@ -318,18 +317,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
                 />
               </label>
 
-              <label className="flex items-center justify-between cursor-pointer text-xs pt-2 border-t border-slate-200">
-                <div>
-                  <span className="font-bold text-slate-800 block">Gemini 3.8-Flash Editorial Assistant</span>
-                  <span className="text-[11px] text-slate-500">Enable multilingual generation and summaries</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={aiAssistance}
-                  onChange={(e) => setAiAssistance(e.target.checked)}
-                  className="rounded text-sky-600 focus:ring-sky-500"
-                />
-              </label>
             </div>
           </div>
         </div>
