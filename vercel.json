@@ -16,6 +16,70 @@
       "destination": "/api/auth-logout"
     },
     {
+      "source": "/api/sources/:id/test",
+      "destination": "/api/direct-crawler?action=test&id=:id"
+    },
+    {
+      "source": "/api/sources/:id/import",
+      "destination": "/api/direct-crawler?action=import&id=:id"
+    },
+    {
+      "source": "/api/sources/:id",
+      "destination": "/api/direct-data?resource=sources&id=:id"
+    },
+    {
+      "source": "/api/sources",
+      "destination": "/api/direct-data?resource=sources"
+    },
+    {
+      "source": "/api/articles/:id",
+      "destination": "/api/direct-data?resource=articles&id=:id"
+    },
+    {
+      "source": "/api/articles",
+      "destination": "/api/direct-data?resource=articles"
+    },
+    {
+      "source": "/api/categories/:id",
+      "destination": "/api/direct-data?resource=categories&id=:id"
+    },
+    {
+      "source": "/api/categories",
+      "destination": "/api/direct-data?resource=categories"
+    },
+    {
+      "source": "/api/settings",
+      "destination": "/api/direct-data?resource=settings"
+    },
+    {
+      "source": "/api/logs",
+      "destination": "/api/direct-data?resource=logs"
+    },
+    {
+      "source": "/api/comments",
+      "destination": "/api/direct-data?resource=comments"
+    },
+    {
+      "source": "/api/crawler/status",
+      "destination": "/api/direct-crawler?action=status"
+    },
+    {
+      "source": "/api/crawler/run-now",
+      "destination": "/api/direct-crawler?action=run"
+    },
+    {
+      "source": "/api/automation/run",
+      "destination": "/api/direct-crawler?action=run"
+    },
+    {
+      "source": "/api/cron/hourly",
+      "destination": "/api/direct-crawler?action=cron"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/direct-crawler?action=status"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index"
     },
