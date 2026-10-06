@@ -160,3 +160,12 @@ GOOGLE_TRANSLATE_API_KEY="YOUR_CLOUD_TRANSLATION_API_KEY"
 ```
 
 Cloud Translation usage/quota is separate from Gemini model quota. Translation failures do not discard the source article; the source edition remains published and the failed target language stays pending until a later retry/import strategy is applied.
+
+
+## Search Console HTML-tag verification
+
+The production Search Console verification token is rendered directly in `index.html` inside the initial `<head>`. This is intentional: Google requires the verification tag to exist in the homepage HTML source, not only after React executes. If Search Console issues a new token in the future, update both the control-panel setting and the static production token, then redeploy.
+
+## Automatic translation
+
+Enable the **Cloud Translation API** in a Google Cloud project and create a dedicated API key for Cloud Translation Basic (v2). Add it to Vercel as `GOOGLE_TRANSLATE_API_KEY` for Production, Preview, and Development, then redeploy. The hourly crawler automatically translates newly imported articles into every language enabled in the control panel. Existing untranslated rows are backfilled on crawler runs and can also be processed from **Crawler → Translate Pending Articles**.
