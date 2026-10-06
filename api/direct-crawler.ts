@@ -457,28 +457,195 @@ function splitTranslationText(value: string, max = 3500): string[] {
   return chunks.length ? chunks : [''];
 }
 
-async function translateBundle(
-  sourceLang: Lang,
-  targetLang: Lang,
-  title: string,
-  description: string,
-  body: string
-) {
-  if (sourceLang === targetLang) return { title, description, body };
+let googleAccessTokenCache: { token: string; expiresAt: number } | null = null;
 
-  const apiKey = String(
-    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY || ''
-  ).trim();
-  if (!apiKey) {
-    throw new Error(
-      'Translation is not configured. Set GOOGLE_TRANSLATE_API_KEY (preferred) or use a Google API key with Cloud Translation enabled.'
-    );
+function translationProviderConfigured(): boolean {
+  return Boolean(
+    process.env.DEEPL_API_KEY ||
+      process.env.GOOGLE_TRANSLATE_API_KEY ||
+      process.env.GOOGLE_TRANSLATE_SERVICE_ACCOUNT_JSON ||
+      process.env.GOOGLE_TRANSLATE_SERVICE_ACCOUNT_B64
+  );
+}
+
+function base64Url(value: string | Buffer): string {
+  return Buffer.from(value)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function readGoogleServiceAccount(): any | null {
+  const raw = String(process.env.GOOGLE_TRANSLATE_SERVICE_ACCOUNT_JSON || '').trim();
+  const encoded = String(process.env.GOOGLE_TRANSLATE_SERVICE_ACCOUNT_B64 || '').trim();
+  const value = raw || (encoded ? Buffer.from(encoded, 'base64').toString('utf8') : '');
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error('Google Translation service-account credentials are not valid JSON.');
+  }
+}
+
+async function googleServiceAccountToken(account: any): Promise<string> {
+  if (
+    googleAccessTokenCache &&
+    googleAccessTokenCache.expiresAt > Date.now() + 60_000
+  ) {
+    return googleAccessTokenCache.token;
   }
 
-  const bodyChunks = splitTranslationText(body);
-  const q = [title, description, ...bodyChunks];
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claims = base64Url(
+    JSON.stringify({
+      iss: account.client_email,
+      scope: 'https://www.googleapis.com/auth/cloud-translation',
+      aud: account.token_uri || 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600,
+    })
+  );
+  const signingInput = `${header}.${claims}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(signingInput);
+  signer.end();
+  const signature = base64Url(signer.sign(account.private_key));
+  const assertion = `${signingInput}.${signature}`;
+
+  const response = await fetch(account.token_uri || 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion,
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+
+  const raw = await response.text();
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = raw;
+  }
+  if (!response.ok || !parsed?.access_token) {
+    const detail =
+      typeof parsed === 'string'
+        ? parsed
+        : parsed?.error_description || parsed?.error || JSON.stringify(parsed);
+    throw new Error(`Google OAuth ${response.status}: ${detail || response.statusText}`);
+  }
+
+  googleAccessTokenCache = {
+    token: parsed.access_token,
+    expiresAt: Date.now() + Math.max(300, Number(parsed.expires_in || 3600)) * 1000,
+  };
+  return parsed.access_token;
+}
+
+async function translateWithDeepL(
+  apiKey: string,
+  sourceLang: Lang,
+  targetLang: Lang,
+  q: string[]
+): Promise<string[]> {
+  const endpoint = apiKey.endsWith(':fx')
+    ? 'https://api-free.deepl.com/v2/translate'
+    : 'https://api.deepl.com/v2/translate';
+  const body = new URLSearchParams();
+  for (const text of q) body.append('text', text);
+  body.set('source_lang', sourceLang.toUpperCase());
+  body.set('target_lang', targetLang === 'en' ? 'EN-US' : targetLang.toUpperCase());
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `DeepL-Auth-Key ${apiKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+    signal: AbortSignal.timeout(30000),
+  });
+  const raw = await response.text();
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = raw;
+  }
+  if (!response.ok) {
+    const detail =
+      typeof parsed === 'string' ? parsed : parsed?.message || JSON.stringify(parsed);
+    throw new Error(`DeepL ${response.status}: ${detail || response.statusText}`);
+  }
+  return Array.isArray(parsed?.translations)
+    ? parsed.translations.map((item: any) => String(item?.text || ''))
+    : [];
+}
+
+async function translateWithGoogleServiceAccount(
+  account: any,
+  sourceLang: Lang,
+  targetLang: Lang,
+  q: string[]
+): Promise<string[]> {
+  if (!account?.project_id || !account?.client_email || !account?.private_key) {
+    throw new Error('Google Translation service-account JSON is missing required fields.');
+  }
+  const token = await googleServiceAccountToken(account);
   const response = await fetch(
-    `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(apiKey)}`,
+    `https://translation.googleapis.com/v3/projects/${encodeURIComponent(
+      account.project_id
+    )}/locations/global:translateText`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: q,
+        sourceLanguageCode: sourceLang,
+        targetLanguageCode: targetLang,
+        mimeType: 'text/plain',
+      }),
+      signal: AbortSignal.timeout(30000),
+    }
+  );
+  const raw = await response.text();
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = raw;
+  }
+  if (!response.ok) {
+    const detail =
+      typeof parsed === 'string'
+        ? parsed
+        : parsed?.error?.message || parsed?.message || JSON.stringify(parsed);
+    throw new Error(
+      `Google Cloud Translation ${response.status}: ${detail || response.statusText}`
+    );
+  }
+  return Array.isArray(parsed?.translations)
+    ? parsed.translations.map((item: any) => decodeEntities(item?.translatedText || ''))
+    : [];
+}
+
+async function translateWithGoogleApiKey(
+  apiKey: string,
+  sourceLang: Lang,
+  targetLang: Lang,
+  q: string[]
+): Promise<string[]> {
+  const response = await fetch(
+    `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(
+      apiKey
+    )}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -491,7 +658,6 @@ async function translateBundle(
       signal: AbortSignal.timeout(30000),
     }
   );
-
   const raw = await response.text();
   let parsed: any = null;
   try {
@@ -499,21 +665,63 @@ async function translateBundle(
   } catch {
     parsed = raw;
   }
-
   if (!response.ok) {
     const detail =
       typeof parsed === 'string'
         ? parsed
         : parsed?.error?.message || parsed?.message || JSON.stringify(parsed);
-    throw new Error(`Cloud Translation ${response.status}: ${detail || response.statusText}`);
+    throw new Error(
+      `Google Cloud Translation ${response.status}: ${detail || response.statusText}`
+    );
+  }
+  return Array.isArray(parsed?.data?.translations)
+    ? parsed.data.translations.map((item: any) =>
+        decodeEntities(item?.translatedText || '')
+      )
+    : [];
+}
+
+async function translateBundle(
+  sourceLang: Lang,
+  targetLang: Lang,
+  title: string,
+  description: string,
+  body: string
+) {
+  if (sourceLang === targetLang) return { title, description, body };
+
+  const bodyChunks = splitTranslationText(body);
+  const q = [title, description, ...bodyChunks];
+
+  let translated: string[] = [];
+  const deepLKey = String(process.env.DEEPL_API_KEY || '').trim();
+  const googleAccount = readGoogleServiceAccount();
+  const googleKey = String(process.env.GOOGLE_TRANSLATE_API_KEY || '').trim();
+
+  if (deepLKey) {
+    translated = await translateWithDeepL(deepLKey, sourceLang, targetLang, q);
+  } else if (googleAccount) {
+    translated = await translateWithGoogleServiceAccount(
+      googleAccount,
+      sourceLang,
+      targetLang,
+      q
+    );
+  } else if (googleKey) {
+    translated = await translateWithGoogleApiKey(
+      googleKey,
+      sourceLang,
+      targetLang,
+      q
+    );
+  } else {
+    throw new Error(
+      'Translation provider is not configured. Set DEEPL_API_KEY, GOOGLE_TRANSLATE_SERVICE_ACCOUNT_JSON, or GOOGLE_TRANSLATE_API_KEY.'
+    );
   }
 
-  const translated = Array.isArray(parsed?.data?.translations)
-    ? parsed.data.translations.map((item: any) => decodeEntities(item?.translatedText || ''))
-    : [];
-
   if (translated.length < 2) {
-    throw new Error('Cloud Translation returned an incomplete response.');
+    throw new Error('Translation provider returned an incomplete response.');
   }
 
   return {
@@ -726,9 +934,7 @@ async function backfillPendingTranslations(
   enabledLanguages: Lang[],
   maxArticles = 2
 ) {
-  const translationConfigured = Boolean(
-    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
-  );
+  const translationConfigured = translationProviderConfigured();
   if (!translationConfigured) {
     return {
       updated: 0,
@@ -884,7 +1090,7 @@ export default async function handler(req: any, res: any) {
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
         geminiRequired: false,
         translationProviderConfigured: Boolean(
-          process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
+          translationProviderConfigured()
         ),
         enabledLanguages,
         scheduler: 'appwrite-hourly-function',
