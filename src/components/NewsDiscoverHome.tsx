@@ -80,11 +80,11 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
 
   const main = sorted[0];
   const supporting = sorted.slice(1, 5);
-  const latest = sorted.slice(5, 17);
-  const mobileMore = sorted.slice(17, 29);
+  const latest = sorted.slice(5, 21);
+  const mobileMore = sorted.slice(21, 45);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-8 sm:space-y-10">
+    <div className="max-w-[1440px] mx-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-6 space-y-6 sm:space-y-9">
       {promotionalSlides.length > 0 && (
         <section>
           <PromotionalHero slides={promotionalSlides} currentLang={currentLang} />
@@ -100,10 +100,10 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-4">
             <article
               onClick={() => onSelectArticle(main)}
-              className="lg:col-span-7 group relative min-h-[300px] sm:min-h-[420px] overflow-hidden bg-slate-950 cursor-pointer"
+              className="lg:col-span-7 group relative min-h-[245px] sm:min-h-[420px] overflow-hidden bg-slate-950 cursor-pointer"
             >
               <img
                 src={main.image}
@@ -136,7 +136,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
               </div>
             </article>
 
-            <div className="lg:col-span-5 grid grid-cols-2 lg:grid-cols-1 gap-3">
+            <div className="lg:col-span-5 grid grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-3">
               {supporting.map((article) => (
                 <article
                   key={article.id}
@@ -183,14 +183,14 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
             </span>
           </div>
 
-          <div className="divide-y divide-slate-200 bg-white border-y border-slate-200">
+          <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 sm:block sm:divide-y sm:divide-slate-200 bg-white sm:border-y sm:border-slate-200">
             {latest.map((article) => (
               <article
                 key={article.id}
                 onClick={() => onSelectArticle(article)}
-                className="grid grid-cols-[105px_1fr] sm:grid-cols-[160px_1fr] gap-3 py-3 cursor-pointer group"
+                className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2 sm:gap-3 pb-3 sm:py-3 cursor-pointer group border-b border-slate-200 sm:border-0"
               >
-                <div className="aspect-[4/3] overflow-hidden bg-slate-100">
+                <div className="aspect-[16/10] sm:aspect-[4/3] overflow-hidden bg-slate-100">
                   <img
                     src={article.image}
                     alt={getArticleTranslation(article, currentLang).title}
@@ -243,7 +243,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
               {sectionLabel(currentLang, 'more')}
             </h2>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
             {mobileMore.map((article) => (
               <ArticleCard
                 key={article.id}
@@ -260,11 +260,11 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
 
       {categories
         .filter((category) => category.isVisible)
-        .slice(0, 6)
+        .slice(0, 8)
         .map((category) => {
           const categoryArticles = sorted
             .filter((article) => article.category === category.slug)
-            .slice(0, 5);
+            .slice(0, 7);
           if (!categoryArticles.length) return null;
 
           return (
@@ -294,7 +294,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
                     onSelectCategory={onSelectCategory}
                   />
                 </div>
-                <div className="md:col-span-6 grid grid-cols-2 gap-2.5 sm:gap-3">
+                <div className="md:col-span-6 grid grid-cols-2 gap-2 sm:gap-3">
                   {categoryArticles.slice(1).map((article) => (
                     <ArticleCard
                       key={article.id}

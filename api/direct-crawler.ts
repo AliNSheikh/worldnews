@@ -821,9 +821,12 @@ export default async function handler(req: any, res: any) {
   const url = new URL(req.url || '/', 'https://local');
   const action = String(url.searchParams.get('action') || 'status');
   const sourceId = url.searchParams.get('id');
+  // A batch is only a serverless work unit, not an article limit.
+  // Automated schedulers keep calling while hasMore=true until every unseen item is drained.
+  const defaultBatch = action === 'cron' ? 30 : action === 'import' ? 30 : 20;
   const requestedBatch = Math.min(
-    20,
-    Math.max(1, Number(url.searchParams.get('batch') || (action === 'import' ? 8 : 4)) || 4)
+    100,
+    Math.max(1, Number(url.searchParams.get('batch') || defaultBatch) || defaultBatch)
   );
   const cycleStartedAt = new Date().toISOString();
 
@@ -976,7 +979,7 @@ export default async function handler(req: any, res: any) {
     const translationBackfill = await backfillPendingTranslations(
       articles,
       enabledLanguages,
-      Math.max(1, Math.ceil(requestedBatch / 2))
+      Math.max(1, requestedBatch)
     );
     const hasMoreTranslations =
       translationBackfill.configured &&

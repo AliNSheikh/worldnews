@@ -145,7 +145,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
         className="group bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-all flex flex-col justify-between"
       >
         <div>
-          <div className="relative aspect-16/9 overflow-hidden bg-slate-900 cursor-pointer" onClick={() => onSelect(article)}>
+          <div className="relative aspect-[4/3] sm:aspect-16/9 overflow-hidden bg-slate-900 cursor-pointer" onClick={() => onSelect(article)}>
             <img
               src={displayImage}
               alt={trans.imageAlt || trans.title}
@@ -277,14 +277,14 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
           )}
         </div>
 
-        <div className="p-3 sm:p-4 space-y-1.5 sm:space-y-2.5">
+        <div className="p-2.5 sm:p-4 space-y-1 sm:space-y-2.5">
           <div className="flex items-center justify-between gap-1 flex-wrap">
             <span className="text-[10px] sm:text-[11px] text-slate-400">{formatDate(article.publishedAt)}</span>
           </div>
 
           <h3
             onClick={() => onSelect(article)}
-            className="font-extrabold text-[12px] sm:text-sm md:text-base text-slate-900 group-hover:text-sky-700 transition-colors cursor-pointer line-clamp-2 leading-snug"
+            className="font-extrabold text-[11px] leading-[1.35] sm:text-sm md:text-base text-slate-900 group-hover:text-sky-700 transition-colors cursor-pointer line-clamp-2 leading-snug"
           >
             {trans.title}
           </h3>
