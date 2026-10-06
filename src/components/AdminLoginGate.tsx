@@ -32,10 +32,27 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
         credentials: 'same-origin',
         body: JSON.stringify({ password: passcode }),
       });
-      const payload = await response.json();
+
+      const rawBody = await response.text();
+      let payload: { error?: string; success?: boolean } | null = null;
+
+      if (rawBody) {
+        try {
+          payload = JSON.parse(rawBody) as { error?: string; success?: boolean };
+        } catch {
+          payload = null;
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Authentication failed.');
+        const fallbackMessage = rawBody && !rawBody.trim().startsWith('<')
+          ? rawBody.trim().slice(0, 240)
+          : `Server request failed with status ${response.status}. Check the Vercel environment variables and deployment logs.`;
+        throw new Error(payload?.error || fallbackMessage || 'Authentication failed.');
+      }
+
+      if (!payload?.success) {
+        throw new Error('The server returned an unexpected authentication response. Please redeploy and try again.');
       }
 
       sessionStorage.setItem('world_news_admin_auth', 'true');
@@ -43,6 +60,7 @@ export const AdminLoginGate: React.FC<AdminLoginGateProps> = ({
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Authentication failed.';
       setError(message);
+    } finally {
       setIsSubmitting(false);
     }
   };
