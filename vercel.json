@@ -85,19 +85,19 @@
     },
     {
       "source": "/sitemap.xml",
-      "destination": "/api/index"
+      "destination": "/api/direct-seo?kind=sitemap"
     },
     {
       "source": "/news-sitemap.xml",
-      "destination": "/api/index"
+      "destination": "/api/direct-seo?kind=news-sitemap"
     },
     {
       "source": "/rss.xml",
-      "destination": "/api/index"
+      "destination": "/api/direct-seo?kind=rss"
     },
     {
       "source": "/robots.txt",
-      "destination": "/api/index"
+      "destination": "/api/direct-seo?kind=robots"
     },
     {
       "source": "/(.*)",
