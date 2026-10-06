@@ -52,6 +52,7 @@ class NewsroomDatabase {
   public comments: Comment[] = [...INITIAL_COMMENTS];
   public logs: AutomationLog[] = [...INITIAL_AUTOMATION_LOGS];
   public settings: SiteSettings = { ...INITIAL_SITE_SETTINGS };
+  public persistenceError: string | null = null;
 
   // Rate limiting map for comment submission: IP or fingerprint -> timestamp array
   private commentRateLimits = new Map<string, number[]>();
@@ -62,7 +63,22 @@ class NewsroomDatabase {
 
   public async ready(): Promise<void> {
     if (!this.readyPromise) {
-      this.readyPromise = this.hydrateFromPersistence();
+      this.readyPromise = this.hydrateFromPersistence().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.persistenceError = message;
+        this.lastHydratedAt = Date.now();
+
+        // Do not let a database configuration problem take down unrelated API
+        // routes such as administrator authentication. Also do not expose the
+        // bundled demo articles when production persistence was expected.
+        if (isPersistenceConfigured()) {
+          this.articles = [];
+          this.comments = [];
+          this.logs = [];
+        }
+
+        console.error('[World News DB] Initial persistence hydration failed:', error);
+      });
     }
     await this.readyPromise;
   }
@@ -89,7 +105,8 @@ class NewsroomDatabase {
   private async hydrateFromPersistence(): Promise<void> {
     if (!isPersistenceConfigured()) {
       this.lastHydratedAt = Date.now();
-      console.info('[World News DB] Supabase is not configured; using development seed data in memory.');
+      this.persistenceError = null;
+      console.info('[World News DB] Persistent storage is not configured; using development seed data in memory.');
       return;
     }
 
@@ -122,6 +139,7 @@ class NewsroomDatabase {
     }
 
     this.lastHydratedAt = Date.now();
+    this.persistenceError = null;
 
     console.info(
       `[World News DB] Hydrated persistent newsroom state: ${this.articles.length} articles, ${this.sources.length} sources.`
