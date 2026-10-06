@@ -1,6 +1,6 @@
-# World News — Vercel + Appwrite Production Setup
+# News Discover — Vercel + Appwrite Production Setup
 
-World News runs as a Vite/React frontend with an Express API on Vercel. Appwrite TablesDB is the primary persistent database. All Appwrite access is server-side; the API key must never use a `VITE_` prefix or be exposed to the browser.
+News Discover runs as a Vite/React frontend with serverless API functions on Vercel. Appwrite TablesDB is the primary persistent database. All Appwrite access is server-side; the API key must never use a `VITE_` prefix or be exposed to the browser.
 
 ## Connected Appwrite project
 
@@ -10,7 +10,7 @@ This repository is already bound to the following non-secret Appwrite defaults:
 - Project ID: `6ac4bf0d00093b81fef7`
 - Database ID: `worldnews`
 
-The Appwrite database and all six required private tables have already been provisioned:
+The required private tables are:
 
 - `newsroom_articles`
 - `newsroom_categories`
@@ -19,46 +19,117 @@ The Appwrite database and all six required private tables have already been prov
 - `newsroom_logs`
 - `newsroom_settings`
 
-Each table contains a required `payload` Longtext column. The application serializes the existing newsroom model as JSON into this column, so the CMS/API model does not change.
+Each table contains a required `payload` Longtext column. The API serializes the newsroom model as JSON into this column.
 
-## 1. Configure the Appwrite API key
+## 1. Configure Appwrite
 
-The API key is intentionally not stored in GitHub. Add it only to secure server-side environments.
-
-For local development, copy `.env.example` to `.env` and set:
+Add this only to secure server-side environments:
 
 ```env
 APPWRITE_API_KEY="YOUR_SERVER_ONLY_APPWRITE_API_KEY"
 ```
 
-The endpoint, project ID, and database ID already have defaults in `server/appwrite.ts`, but they may still be overridden with environment variables if required.
-
-For runtime access, the key only needs row read/write permissions. A broader setup key can be used temporarily for schema administration, but should be rotated or replaced after setup.
+The endpoint, project ID, and database ID already have defaults in the code and can still be overridden when necessary.
 
 ## 2. Configure Vercel
 
-In **Vercel → worldnews → Settings → Environment Variables**, add at minimum:
+In **Vercel → worldnews → Settings → Environment Variables**, add:
 
 - `APPWRITE_API_KEY`
-- `GEMINI_API_KEY`
-- `APP_URL=https://your-production-domain.example`
+- `APP_URL=https://your-news-discover-domain.example`
 - `CRON_SECRET`
 - `ADMIN_PASSWORD`
 - `ADMIN_SESSION_SECRET`
 
-The following Appwrite variables are optional because the correct values are built into the code:
+Gemini is no longer required for the automated crawler. The current ingestion path stores source-derived headlines, text, SEO metadata, and original source images directly.
 
-```env
-APPWRITE_ENDPOINT="https://fra.cloud.appwrite.io/v1"
-APPWRITE_PROJECT_ID="6ac4bf0d00093b81fef7"
-APPWRITE_DATABASE_ID="worldnews"
+After changing environment variables, redeploy `main`.
+
+## 3. Configure the custom News Discover domain
+
+Attach the purchased News Discover domain in Vercel, then set the same canonical URL in the control panel under **Settings → Google Search & Analytics → Production Site URL**.
+
+The saved site URL is used to build canonical links, sitemap URLs, robots.txt sitemap declarations, Open Graph URLs, and structured data.
+
+## 4. Hourly ingestion
+
+The repository includes `.github/workflows/hourly-crawler.yml`, which calls the protected crawler once every hour.
+
+In **GitHub → worldnews → Settings → Secrets and variables → Actions** configure:
+
+- Repository variable: `NEWS_DISCOVER_URL` = the full production origin, for example `https://your-domain.example`
+- Repository secret: `CRON_SECRET` = exactly the same value as the Vercel `CRON_SECRET`
+
+The workflow calls:
+
+```text
+GET /api/cron/hourly
+Authorization: Bearer <CRON_SECRET>
 ```
 
-After saving environment variables, redeploy the latest `main` branch.
+It also supports **Run workflow** for a manual test.
 
-## 3. Optional: migrate existing Supabase data
+The existing Vercel Hobby-compatible daily cron can remain as a backup. If the Vercel project is upgraded to a plan that permits hourly cron, its schedule can also be changed to `0 * * * *`.
 
-If production still contains data in Supabase, keep these variables temporarily in a local `.env`:
+## 5. Source-direct article ingestion
+
+Automated imports no longer depend on Gemini. For each eligible RSS/Atom item the crawler:
+
+1. Reads the feed headline, date, description, enclosure/media image, and link.
+2. Fetches the article page when available.
+3. Extracts source description, article text, author, and `og:image` / `twitter:image`.
+4. Derives an SEO title, meta description, keywords, tags, and slug from source data.
+5. Stores the article in Appwrite before counting the import as successful.
+6. Keeps the source URL and media provenance internally for verification.
+
+Make sure the source publisher permits the way its text and images are being republished. Technical access to a source does not itself grant republication rights.
+
+## 6. Control panel article management
+
+The Articles section supports:
+
+- keyword search across article titles and text
+- category and status filtering
+- editing an article
+- deleting an article
+- opening the original source URL
+- refreshing persisted Appwrite data
+
+## 7. Google Analytics and Search Console
+
+In **Control Panel → Settings → Google Search & Analytics** configure:
+
+- Production Site URL
+- Google Analytics Measurement ID (for example `G-XXXXXXXXXX`)
+- Google Search Console verification token
+
+The site injects the Analytics configuration and the Search Console verification meta tag from saved settings.
+
+For Search Console:
+
+1. Add the production domain/property in Google Search Console.
+2. Complete ownership verification.
+3. Submit `/sitemap.xml`.
+4. Submit `/news-sitemap.xml`.
+5. Inspect important article URLs when needed.
+
+Google determines crawl and indexing timing. News Discover can expose correct crawlable URLs and fresh sitemaps, but no implementation can guarantee immediate indexing or legitimately bypass Google's indexing decisions.
+
+## 8. SEO endpoints
+
+Validate these URLs after deployment:
+
+- `/robots.txt`
+- `/sitemap.xml`
+- `/news-sitemap.xml`
+- `/rss.xml?lang=en`
+- `/api/health`
+
+The sitemap is generated dynamically from Appwrite and includes published article URLs, category URLs, last-modified dates, and source-derived images where available.
+
+## 9. Optional Supabase migration
+
+If old content still exists in Supabase, keep these variables temporarily in a local `.env`:
 
 ```env
 SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
@@ -73,53 +144,12 @@ npm install
 npm run appwrite:migrate:supabase
 ```
 
-The command copies articles, categories, sources, comments, automation logs, and site settings into Appwrite using deterministic row IDs. Verify the data in the Appwrite Console before removing the Supabase environment variables.
+Verify the migrated rows in Appwrite before removing the temporary Supabase variables.
 
-The application prefers Appwrite whenever `APPWRITE_API_KEY` is available. Supabase remains only as a temporary fallback during migration.
+## 10. Security
 
-## 4. Validate the integration
-
-Check these production endpoints after redeployment:
-
-- `/api/health`
-- `/robots.txt`
-- `/sitemap.xml`
-- `/news-sitemap.xml`
-- `/rss.xml?lang=en`
-
-Then sign into the CMS and:
-
-1. Add or edit an RSS source.
-2. Test the source.
-3. Run a manual import.
-4. Confirm rows appear in `newsroom_articles` in Appwrite.
-5. Edit site settings and confirm `newsroom_settings` is updated.
-6. Restart/redeploy the app and confirm the same data is still present.
-
-## 5. Cron schedule
-
-The bundled Vercel Hobby-compatible cron remains:
-
-```text
-0 2 * * *
-```
-
-For true hourly ingestion, use Vercel Pro with `0 * * * *` or call `/api/cron/hourly` from an external hourly scheduler using `Authorization: Bearer <CRON_SECRET>`.
-
-## 6. Google Search setup
-
-1. Verify the production domain in Google Search Console.
-2. Submit `/sitemap.xml`.
-3. Submit `/news-sitemap.xml`.
-4. Keep canonical and hreflang URLs on the production domain.
-
-Google controls crawl and indexing timing; the application can publish fresh sitemap data but cannot guarantee hourly indexing.
-
-## 7. Security notes
-
-- Never commit or expose `APPWRITE_API_KEY`.
+- Never commit `APPWRITE_API_KEY` or `CRON_SECRET`.
 - Do not prefix server secrets with `VITE_`.
-- Keep Appwrite tables private because all persistence flows through the Express API.
-- Rotate any API key that has been shared in chat or another non-secret channel.
-- Prefer a runtime key with only row read/write permissions once setup is complete.
-- Keep source provenance internal for editorial verification and rights review.
+- Keep Appwrite tables private and access them through server-side APIs.
+- Rotate any secret that has been exposed outside a secret manager.
+- Keep original source/provenance data for verification and rights review.
