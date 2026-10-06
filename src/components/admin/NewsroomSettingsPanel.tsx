@@ -17,7 +17,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { SiteSettings, AutomationLog } from '../../types';
+import { SiteSettings, AutomationLog, LanguageCode } from '../../types';
 import { HeroSliderManager } from './HeroSliderManager';
 
 interface NewsroomSettingsPanelProps {
@@ -35,7 +35,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
 }) => {
   const [commentMod, setCommentMod] = useState(settings.commentModeration);
   const [autoIngest, setAutoIngest] = useState(settings.autoIngestEnabled);
-  const [enabledLanguages, setEnabledLanguages] = useState(
+  const [enabledLanguages, setEnabledLanguages] = useState<LanguageCode[]>(
     settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr']
   );
 
@@ -190,7 +190,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
               ['es', 'Español'],
               ['fr', 'Français'],
             ].map(([code, label]) => {
-              const checked = enabledLanguages.includes(code as any);
+              const checked = enabledLanguages.includes(code as LanguageCode);
               return (
                 <label
                   key={code}
@@ -206,9 +206,9 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
                     onChange={(e) => {
                       setEnabledLanguages((current) => {
                         if (e.target.checked) {
-                          return current.includes(code as any)
+                          return current.includes(code as LanguageCode)
                             ? current
-                            : [...current, code as any];
+                            : [...current, code as LanguageCode];
                         }
                         const next = current.filter((lang) => lang !== code);
                         return next.length ? next : current;
