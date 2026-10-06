@@ -31,6 +31,15 @@ type SupabaseRowWithPayload<T> = {
   payload: T;
 };
 
+type AppwritePayloadRow = {
+  payload?: unknown;
+  data?: {
+    payload?: unknown;
+    [key: string]: unknown;
+  } | null;
+  [key: string]: unknown;
+};
+
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -67,11 +76,28 @@ function parsePayload<T>(payload: unknown): T | null {
     try {
       return JSON.parse(payload) as T;
     } catch (error) {
-      console.error('[World News DB] Invalid JSON payload in Appwrite row:', error);
+      console.error('[World News DB] Invalid JSON payload in persistence row:', error);
     }
   }
 
   return null;
+}
+
+/**
+ * Appwrite TablesDB responses can expose user columns either directly on the
+ * row object or nested under `row.data`, depending on the SDK/API response
+ * shape. Support both forms so persisted newsroom data hydrates reliably.
+ */
+function getAppwriteRowPayload(row: unknown): unknown {
+  if (!row || typeof row !== 'object') return undefined;
+  const candidate = row as AppwritePayloadRow;
+
+  if (candidate.payload !== undefined) return candidate.payload;
+  if (candidate.data && typeof candidate.data === 'object') {
+    return candidate.data.payload;
+  }
+
+  return undefined;
 }
 
 async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
@@ -89,8 +115,7 @@ async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
     });
 
     for (const row of page.rows) {
-      const payload = (row as unknown as { payload?: unknown }).payload;
-      const parsed = parsePayload<T>(payload);
+      const parsed = parsePayload<T>(getAppwriteRowPayload(row));
       if (parsed) output.push(parsed);
     }
 
