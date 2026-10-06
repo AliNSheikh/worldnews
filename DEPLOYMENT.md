@@ -1,44 +1,111 @@
-# World News — Vercel + Supabase Production Setup
+# World News — Vercel + Appwrite Production Setup
 
-This project is designed to run as a Vite/React frontend with an Express server on Vercel and Supabase/Postgres for persistent newsroom data.
+World News runs as a Vite/React frontend with an Express API on Vercel. Appwrite TablesDB is the primary persistent database. All Appwrite access is server-side; the API key must never use a `VITE_` prefix or be exposed to the browser.
 
-## 1. Create the Supabase database
+## 1. Create the Appwrite project
 
-1. Create a Supabase project.
-2. Open **SQL Editor**.
-3. Run the complete file: `database/schema.sql`.
-4. In **Project Settings → API**, copy:
-   - Project URL → `SUPABASE_URL`
-   - Service role key → `SUPABASE_SERVICE_ROLE_KEY`
-5. Keep the service-role key server-only. Never expose it through a `VITE_` environment variable.
+1. Create a project at Appwrite Cloud.
+2. Copy the project ID.
+3. Copy the API endpoint for your region, including `/v1`, for example `https://<REGION>.cloud.appwrite.io/v1`.
+4. Under **Integrate with your server**, create a temporary setup API key with these scopes:
+   - `databases.write`
+   - `tables.write`
+   - `columns.write`
+   - `rows.read`
+   - `rows.write`
+5. Keep the API key server-only.
 
-The schema uses RLS with no anonymous browser write policy. All CMS persistence is performed by the server.
+## 2. Configure local environment variables
 
-## 2. Configure Vercel
+Copy `.env.example` to `.env` and set at least:
 
-Import the GitHub repository into Vercel, then add these variables for Production (and Preview when needed):
+```env
+APPWRITE_ENDPOINT="https://<REGION>.cloud.appwrite.io/v1"
+APPWRITE_PROJECT_ID="YOUR_PROJECT_ID"
+APPWRITE_API_KEY="YOUR_SETUP_API_KEY"
+APPWRITE_DATABASE_ID="worldnews"
+```
+
+The six table IDs already have defaults and normally do not need to be changed.
+
+## 3. Create the Appwrite database automatically
+
+Install dependencies and run:
+
+```bash
+npm install
+npm run appwrite:setup
+```
+
+The setup command creates:
+
+- database: `worldnews`
+- `newsroom_articles`
+- `newsroom_categories`
+- `newsroom_sources`
+- `newsroom_comments`
+- `newsroom_logs`
+- `newsroom_settings`
+
+Each table contains a required `payload` Longtext column. The application serializes the existing newsroom model as JSON into this column, so the CMS/API model does not change.
+
+The tables intentionally have no public permissions. Server SDK calls authenticated with the Appwrite API key can read and write them.
+
+After setup, you may create a second runtime API key with only:
+
+- `rows.read`
+- `rows.write`
+
+Replace `APPWRITE_API_KEY` with that runtime key in Vercel.
+
+## 4. Optional: migrate existing Supabase data
+
+If production already contains data in Supabase, keep these variables temporarily:
+
+```env
+SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+```
+
+Then run:
+
+```bash
+npm run appwrite:migrate:supabase
+```
+
+The command copies articles, categories, sources, comments, automation logs, and site settings into Appwrite using deterministic row IDs. Verify the data in the Appwrite Console before removing the Supabase environment variables.
+
+The application prefers Appwrite whenever all required `APPWRITE_*` variables are present. Supabase remains only as a temporary fallback during migration.
+
+## 5. Configure Vercel
+
+Add these variables to **Production** and, if needed, **Preview**:
 
 - `GEMINI_API_KEY`
 - `APP_URL=https://your-production-domain.example`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `CRON_SECRET` — long random secret
-- `ADMIN_PASSWORD` — strong CMS password
-- `ADMIN_SESSION_SECRET` — separate long random signing secret
+- `APPWRITE_ENDPOINT`
+- `APPWRITE_PROJECT_ID`
+- `APPWRITE_API_KEY`
+- `APPWRITE_DATABASE_ID=worldnews`
+- `CRON_SECRET`
+- `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET`
 
-Deploy after saving the variables.
+The table-ID variables are optional because the code uses the defaults shown in `.env.example`.
 
-The repository's `vercel.json` uses a Hobby-compatible daily schedule:
+Redeploy after saving the variables.
 
-```
+The bundled Vercel Hobby-compatible cron remains:
+
+```text
 0 2 * * *
 ```
 
-which invokes `GET /api/cron/hourly` once per day. Vercel Hobby rejects cron expressions that run more than once per day. To restore true hourly ingestion, upgrade the Vercel project to Pro and change the schedule back to `0 * * * *`, or call the same authenticated endpoint from an external hourly scheduler. The endpoint requires the Vercel cron bearer secret in production.
+For true hourly ingestion, use Vercel Pro with `0 * * * *` or call `/api/cron/hourly` from an external hourly scheduler using `Authorization: Bearer <CRON_SECRET>`.
 
-## 3. Validate the deployment
+## 6. Validate the integration
 
-Check these endpoints after deployment:
+Check:
 
 - `/api/health`
 - `/robots.txt`
@@ -46,55 +113,28 @@ Check these endpoints after deployment:
 - `/news-sitemap.xml`
 - `/rss.xml?lang=en`
 
-Then open the CMS, sign in with `ADMIN_PASSWORD`, and verify:
+Then sign into the CMS and:
 
 1. Add or edit an RSS source.
-2. Use **Test Source** to confirm it returns real parsed feed items.
+2. Test the source.
 3. Run a manual import.
-4. Confirm new article rows appear in `public.newsroom_articles`.
-5. Confirm each article has five language editions when generation succeeds.
-6. Confirm weak/headline-only items are skipped or held for review instead of being fabricated.
-7. Confirm image provenance is recorded internally.
+4. Confirm rows appear in `newsroom_articles` in Appwrite.
+5. Edit site settings and confirm `newsroom_settings` is updated.
+6. Restart/redeploy the app and confirm the same data is still present.
 
-## 4. Google Search setup
+## 7. Google Search setup
 
-1. Add and verify the production domain in Google Search Console.
+1. Verify the production domain in Google Search Console.
 2. Submit `/sitemap.xml`.
 3. Submit `/news-sitemap.xml`.
-4. Keep canonical and hreflang URLs on the final production domain.
-5. Use the URL Inspection tool for spot checks after launch.
+4. Keep canonical and hreflang URLs on the production domain.
 
-The ingestion endpoint supports hourly execution, but the bundled Vercel Hobby schedule runs daily unless the project is upgraded or an external hourly scheduler is configured. The application publishes fresh sitemap data after ingestion, but Google controls crawl and indexing timing. Hourly indexing cannot be guaranteed by the site.
+Google controls crawl and indexing timing; the application can publish fresh sitemap data but cannot guarantee hourly indexing.
 
-## 5. Editorial and media policy
+## 8. Security notes
 
-The ingestion pipeline keeps upstream provenance internally for deduplication, verification, moderation, and rights review. It is not displayed as reader-facing source branding.
-
-Before monetizing, confirm that each upstream feed permits the intended use of its text and images. Source images should preferably be copied into a controlled media-storage workflow only when you have appropriate rights. Generated or fallback images are labeled internally as such and are not represented as original article photography.
-
-## 6. Hero Slider and ads
-
-The CMS can configure promotional Hero Slider entries with:
-
-- localized headline
-- image or video URL
-- clickable CTA label
-- clickable CTA URL
-- enabled/disabled state
-
-When no promotional Hero Slider is active, the homepage falls back to the latest published articles.
-
-Reserved ad slots are included in the homepage layout. Connect AdSense or another network only after the production domain, privacy/consent requirements, and ad policies are ready.
-
-## 7. Recommended next architecture phase
-
-For a family of specialized sites, the next phase should add:
-
-- Supabase Storage for controlled Hero/media uploads
-- a media-rights/status field and upload pipeline
-- server-rendered article/category HTML for faster news SEO
-- a tenant/site profile table for brand, domain, sources, categories, ad IDs and theme
-- per-site sitemap/news-sitemap generation
-- role-based CMS accounts instead of one shared admin password
-- a deterministic lockfile in the repository
-- monitoring for cron failures, AI failures and source extraction failures
+- Never expose `APPWRITE_API_KEY` in browser code.
+- Do not prefix server secrets with `VITE_`.
+- Keep Appwrite tables private because all persistence flows through the Express API.
+- Rotate the broad setup key after schema creation if you switch to the narrower runtime key.
+- Keep source provenance internal for editorial verification and rights review.

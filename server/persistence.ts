@@ -1,3 +1,4 @@
+import { Query } from 'node-appwrite';
 import {
   Article,
   AutomationLog,
@@ -6,11 +7,13 @@ import {
   NewsSource,
   SiteSettings,
 } from '../src/types';
-
-type RowWithPayload<T> = {
-  id: string;
-  payload: T;
-};
+import {
+  APPWRITE_DATABASE_ID,
+  APPWRITE_TABLES,
+  getAppwriteTablesDb,
+  isAppwriteConfigured,
+  toAppwriteRowId,
+} from './appwrite';
 
 export interface PersistenceSnapshot {
   articles: Article[];
@@ -21,14 +24,104 @@ export interface PersistenceSnapshot {
   settings: SiteSettings | null;
 }
 
+type PersistenceProvider = 'appwrite' | 'supabase' | 'memory';
+
+type SupabaseRowWithPayload<T> = {
+  id: string;
+  payload: T;
+};
+
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-export function isPersistenceConfigured(): boolean {
+function isSupabaseConfigured(): boolean {
   return Boolean(supabaseUrl && serviceRoleKey);
 }
 
-function headers(extra: Record<string, string> = {}): Record<string, string> {
+export function getPersistenceProvider(): PersistenceProvider {
+  if (isAppwriteConfigured()) return 'appwrite';
+  if (isSupabaseConfigured()) return 'supabase';
+  return 'memory';
+}
+
+export function isPersistenceConfigured(): boolean {
+  return getPersistenceProvider() !== 'memory';
+}
+
+function emptySnapshot(): PersistenceSnapshot {
+  return {
+    articles: [],
+    categories: [],
+    sources: [],
+    comments: [],
+    logs: [],
+    settings: null,
+  };
+}
+
+function parsePayload<T>(payload: unknown): T | null {
+  if (!payload) return null;
+  if (typeof payload === 'object') return payload as T;
+
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as T;
+    } catch (error) {
+      console.error('[World News DB] Invalid JSON payload in Appwrite row:', error);
+    }
+  }
+
+  return null;
+}
+
+async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
+  const tablesDb = getAppwriteTablesDb();
+  const pageSize = 1000;
+  const output: T[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await tablesDb.listRows({
+      databaseId: APPWRITE_DATABASE_ID,
+      tableId,
+      queries: [Query.limit(pageSize), Query.offset(offset)],
+      total: false,
+      ttl: 0,
+    });
+
+    for (const row of page.rows) {
+      const payload = (row as unknown as { payload?: unknown }).payload;
+      const parsed = parsePayload<T>(payload);
+      if (parsed) output.push(parsed);
+    }
+
+    if (page.rows.length < pageSize) break;
+  }
+
+  return output;
+}
+
+async function upsertAppwritePayload(tableId: string, id: string, payload: unknown): Promise<void> {
+  const tablesDb = getAppwriteTablesDb();
+  await tablesDb.upsertRow({
+    databaseId: APPWRITE_DATABASE_ID,
+    tableId,
+    rowId: toAppwriteRowId(id),
+    data: {
+      payload: JSON.stringify(payload),
+    },
+  });
+}
+
+async function deleteAppwriteRow(tableId: string, id: string): Promise<void> {
+  const tablesDb = getAppwriteTablesDb();
+  await tablesDb.deleteRow({
+    databaseId: APPWRITE_DATABASE_ID,
+    tableId,
+    rowId: toAppwriteRowId(id),
+  });
+}
+
+function supabaseHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     apikey: serviceRoleKey,
     Authorization: `Bearer ${serviceRoleKey}`,
@@ -37,12 +130,12 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   };
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  if (!isPersistenceConfigured()) {
-    throw new Error('Supabase persistence is not configured.');
+async function supabaseRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase fallback persistence is not configured.');
   }
 
-  const requestHeaders = new Headers(headers());
+  const requestHeaders = new Headers(supabaseHeaders());
   const extraHeaders = new Headers(init.headers || {});
   extraHeaders.forEach((value, key) => requestHeaders.set(key, value));
 
@@ -61,14 +154,13 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   return response;
 }
 
-async function selectPayloads<T>(table: string): Promise<T[]> {
-  if (!isPersistenceConfigured()) return [];
-  const response = await request(`${table}?select=id,payload`);
-  const rows = (await response.json()) as RowWithPayload<T>[];
+async function selectSupabasePayloads<T>(table: string): Promise<T[]> {
+  const response = await supabaseRequest(`${table}?select=id,payload`);
+  const rows = (await response.json()) as SupabaseRowWithPayload<T>[];
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
-async function upsertPayload(
+async function upsertSupabasePayload(
   table: string,
   record: {
     id: string;
@@ -80,9 +172,7 @@ async function upsertPayload(
     updated_at?: string | null;
   }
 ): Promise<void> {
-  if (!isPersistenceConfigured()) return;
-
-  await request(`${table}?on_conflict=id`, {
+  await supabaseRequest(`${table}?on_conflict=id`, {
     method: 'POST',
     headers: {
       Prefer: 'resolution=merge-duplicates,return=minimal',
@@ -91,9 +181,8 @@ async function upsertPayload(
   });
 }
 
-async function deleteById(table: string, id: string): Promise<void> {
-  if (!isPersistenceConfigured()) return;
-  await request(`${table}?id=eq.${encodeURIComponent(id)}`, {
+async function deleteSupabaseById(table: string, id: string): Promise<void> {
+  await supabaseRequest(`${table}?id=eq.${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: {
       Prefer: 'return=minimal',
@@ -101,32 +190,74 @@ async function deleteById(table: string, id: string): Promise<void> {
   });
 }
 
+const tableMap = {
+  articles: { appwrite: APPWRITE_TABLES.articles, supabase: 'newsroom_articles' },
+  categories: { appwrite: APPWRITE_TABLES.categories, supabase: 'newsroom_categories' },
+  sources: { appwrite: APPWRITE_TABLES.sources, supabase: 'newsroom_sources' },
+  comments: { appwrite: APPWRITE_TABLES.comments, supabase: 'newsroom_comments' },
+  logs: { appwrite: APPWRITE_TABLES.logs, supabase: 'newsroom_logs' },
+  settings: { appwrite: APPWRITE_TABLES.settings, supabase: 'newsroom_settings' },
+} as const;
+
+async function selectPayloads<T>(key: keyof typeof tableMap): Promise<T[]> {
+  const provider = getPersistenceProvider();
+  if (provider === 'appwrite') {
+    return listAppwritePayloads<T>(tableMap[key].appwrite);
+  }
+  if (provider === 'supabase') {
+    return selectSupabasePayloads<T>(tableMap[key].supabase);
+  }
+  return [];
+}
+
+async function upsertPayload(
+  key: keyof typeof tableMap,
+  record: {
+    id: string;
+    payload: unknown;
+    original_url?: string | null;
+    category?: string | null;
+    status?: string | null;
+    published_at?: string | null;
+    updated_at?: string | null;
+  }
+): Promise<void> {
+  const provider = getPersistenceProvider();
+  if (provider === 'appwrite') {
+    await upsertAppwritePayload(tableMap[key].appwrite, record.id, record.payload);
+    return;
+  }
+  if (provider === 'supabase') {
+    await upsertSupabasePayload(tableMap[key].supabase, record);
+  }
+}
+
+async function deleteById(key: keyof typeof tableMap, id: string): Promise<void> {
+  const provider = getPersistenceProvider();
+  if (provider === 'appwrite') {
+    await deleteAppwriteRow(tableMap[key].appwrite, id);
+    return;
+  }
+  if (provider === 'supabase') {
+    await deleteSupabaseById(tableMap[key].supabase, id);
+  }
+}
+
 async function loadSettings(): Promise<SiteSettings | null> {
-  if (!isPersistenceConfigured()) return null;
-  const response = await request('newsroom_settings?id=eq.default&select=payload&limit=1');
-  const rows = (await response.json()) as Array<{ payload: SiteSettings }>;
-  return rows[0]?.payload || null;
+  const settings = await selectPayloads<SiteSettings>('settings');
+  return settings[0] || null;
 }
 
 export const persistence = {
   async loadSnapshot(): Promise<PersistenceSnapshot> {
-    if (!isPersistenceConfigured()) {
-      return {
-        articles: [],
-        categories: [],
-        sources: [],
-        comments: [],
-        logs: [],
-        settings: null,
-      };
-    }
+    if (!isPersistenceConfigured()) return emptySnapshot();
 
     const [articles, categories, sources, comments, logs, settings] = await Promise.all([
-      selectPayloads<Article>('newsroom_articles'),
-      selectPayloads<Category>('newsroom_categories'),
-      selectPayloads<NewsSource>('newsroom_sources'),
-      selectPayloads<Comment>('newsroom_comments'),
-      selectPayloads<AutomationLog>('newsroom_logs'),
+      selectPayloads<Article>('articles'),
+      selectPayloads<Category>('categories'),
+      selectPayloads<NewsSource>('sources'),
+      selectPayloads<Comment>('comments'),
+      selectPayloads<AutomationLog>('logs'),
       loadSettings(),
     ]);
 
@@ -134,7 +265,7 @@ export const persistence = {
   },
 
   upsertArticle(article: Article) {
-    return upsertPayload('newsroom_articles', {
+    return upsertPayload('articles', {
       id: article.id,
       original_url: article.originalUrl || null,
       category: article.category,
@@ -146,45 +277,30 @@ export const persistence = {
   },
 
   deleteArticle(id: string) {
-    return deleteById('newsroom_articles', id);
+    return deleteById('articles', id);
   },
 
   upsertCategory(category: Category) {
-    return upsertPayload('newsroom_categories', {
-      id: category.id,
-      payload: category,
-    });
+    return upsertPayload('categories', { id: category.id, payload: category });
   },
 
   upsertSource(source: NewsSource) {
-    return upsertPayload('newsroom_sources', {
-      id: source.id,
-      payload: source,
-    });
+    return upsertPayload('sources', { id: source.id, payload: source });
   },
 
   deleteSource(id: string) {
-    return deleteById('newsroom_sources', id);
+    return deleteById('sources', id);
   },
 
   upsertComment(comment: Comment) {
-    return upsertPayload('newsroom_comments', {
-      id: comment.id,
-      payload: comment,
-    });
+    return upsertPayload('comments', { id: comment.id, payload: comment });
   },
 
   upsertLog(log: AutomationLog) {
-    return upsertPayload('newsroom_logs', {
-      id: log.id,
-      payload: log,
-    });
+    return upsertPayload('logs', { id: log.id, payload: log });
   },
 
-  async upsertSettings(settings: SiteSettings) {
-    return upsertPayload('newsroom_settings', {
-      id: 'default',
-      payload: settings,
-    });
+  upsertSettings(settings: SiteSettings) {
+    return upsertPayload('settings', { id: 'default', payload: settings });
   },
 };

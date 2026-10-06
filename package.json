@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "build:server": "esbuild server/local.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist-server/server.mjs"
+    "build:server": "esbuild server/local.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist-server/server.mjs",
+    "appwrite:setup": "tsx scripts/setup-appwrite.ts",
+    "appwrite:migrate:supabase": "tsx scripts/migrate-supabase-to-appwrite.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -20,6 +22,7 @@
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "node-appwrite": "^29.0.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "rss-parser": "^3.13.0",
@@ -30,7 +33,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
