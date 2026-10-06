@@ -1477,7 +1477,7 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
   },
   footerText: {
     en: 'News Discover brings source-driven international news, original publisher metadata, and fast searchable coverage to readers worldwide.',
-    ar: 'تقدم نيوز ديسكفر تغطية دولية حديثة ومحتوى إخبارياً مستنداً إلى المصادر الأصلية.'
+    ar: 'تقدم نيوز ديسكفر تغطية دولية حديثة ومحتوى إخبارياً مستنداً إلى المصادر الأصلية.',
     de: 'News Discover bietet aktuelle internationale Nachrichten und quellenbasierte Berichterstattung.',
     es: 'News Discover ofrece noticias internacionales actuales y cobertura basada en fuentes.',
     fr: 'News Discover propose des actualités internationales et une couverture fondée sur les sources.',
@@ -1486,11 +1486,11 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
   autoIngestEnabled: true,
   aiAssistanceEnabled: false,
   editorialStatement: {
-    en: 'News Discover publishes source-derived news content and metadata without AI regeneration in the automated ingestion path. Source URLs and provenance are retained for verification, and publisher licensing terms remain applicable to source media.'
-    ar: 'تعتمد نيوز ديسكفر في الاستيراد الآلي على المحتوى والبيانات الوصفية المستمدة من المصدر من دون إعادة صياغة بالذكاء الاصطناعي، مع الاحتفاظ ببيانات المصدر لأغراض التحقق.'
-    de: 'News Discover veröffentlicht im automatisierten Import quellenbasierte Inhalte ohne KI-Neuschreibung und bewahrt die Herkunft zur Überprüfung.'
-    es: 'News Discover publica contenido procedente de las fuentes sin reescritura por IA en la ingesta automática y conserva la procedencia para su verificación.'
-    fr: 'News Discover publie des contenus issus des sources sans réécriture par IA dans l’ingestion automatique et conserve leur provenance pour vérification.'
+    en: 'News Discover publishes source-derived news content and metadata without AI regeneration in the automated ingestion path. Source URLs and provenance are retained for verification, and publisher licensing terms remain applicable to source media.',
+    ar: 'تعتمد نيوز ديسكفر في الاستيراد الآلي على المحتوى والبيانات الوصفية المستمدة من المصدر من دون إعادة صياغة بالذكاء الاصطناعي، مع الاحتفاظ ببيانات المصدر لأغراض التحقق.',
+    de: 'News Discover veröffentlicht im automatisierten Import quellenbasierte Inhalte ohne KI-Neuschreibung und bewahrt die Herkunft zur Überprüfung.',
+    es: 'News Discover publica contenido procedente de las fuentes sin reescritura por IA en la ingesta automática y conserva la procedencia para su verificación.',
+    fr: 'News Discover publie des contenus issus des sources sans réécriture par IA dans l’ingestion automatique et conserve leur provenance pour vérification.',
   },
   siteUrl: '',
   googleSearchConsoleVerification: '',
