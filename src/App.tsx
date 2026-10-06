@@ -118,6 +118,21 @@ export function App() {
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
 
+  // Keep the active edition aligned with languages enabled in the control panel.
+  useEffect(() => {
+    const enabled = settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr'];
+    if (!enabled.includes(currentLang)) {
+      const fallback =
+        (enabled.includes(settings.defaultLanguage) && settings.defaultLanguage) ||
+        enabled[0] ||
+        'en';
+      setCurrentLang(fallback as LanguageCode);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin')) {
+        window.history.replaceState({}, '', `/${fallback}`);
+      }
+    }
+  }, [settings.enabledLanguages, settings.defaultLanguage, currentLang]);
+
   // Initialize Google Analytics when measurement ID is configured
   useEffect(() => {
     if (settings.googleAnalyticsMeasurementId) {
