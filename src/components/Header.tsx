@@ -32,15 +32,20 @@ export const Header: React.FC<HeaderProps> = ({
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
   const isRtl = currentLang === 'ar';
 
-  const languages: { code: LanguageCode; label: string; flag: string }[] = [
+  const allLanguages: { code: LanguageCode; label: string; flag: string }[] = [
     { code: 'ar', label: 'العربية', flag: '🇸🇦' },
     { code: 'en', label: 'English', flag: '🇬🇧' },
     { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
     { code: 'es', label: 'Español', flag: '🇪🇸' },
     { code: 'fr', label: 'Français', flag: '🇫🇷' },
   ];
-
-  const currentLangObj = languages.find((l) => l.code === currentLang) || languages[1];
+  const enabledSet = new Set(siteSettings.enabledLanguages || allLanguages.map((item) => item.code));
+  const languages = allLanguages.filter((item) => enabledSet.has(item.code));
+  const currentLangObj =
+    languages.find((l) => l.code === currentLang) ||
+    allLanguages.find((l) => l.code === currentLang) ||
+    languages[0] ||
+    allLanguages[1];
 
   // Close dropdown on outside click
   useEffect(() => {
