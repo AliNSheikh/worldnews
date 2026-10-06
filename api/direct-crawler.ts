@@ -721,6 +721,92 @@ async function processSource(
   }
 }
 
+async function backfillPendingTranslations(
+  articles: any[],
+  enabledLanguages: Lang[],
+  maxArticles = 2
+) {
+  const translationConfigured = Boolean(
+    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
+  );
+  if (!translationConfigured) {
+    return {
+      updated: 0,
+      remaining: articles.filter((article) =>
+        enabledLanguages.some(
+          (lang) => !article?.translations?.[lang]?.title || article?.translations?.[lang]?.translationStatus !== 'complete'
+        )
+      ).length,
+      diagnostics: ['Translation provider is not configured.'],
+    };
+  }
+
+  const pending = articles.filter((article) =>
+    enabledLanguages.some(
+      (lang) =>
+        !article?.translations?.[lang]?.title ||
+        article?.translations?.[lang]?.translationStatus !== 'complete'
+    )
+  );
+  const batch = pending.slice(0, Math.max(1, maxArticles));
+  const diagnostics: string[] = [];
+  let updated = 0;
+
+  for (const article of batch) {
+    const sourceLanguage = normalizeLang(article.sourceLanguage || 'en');
+    const source =
+      article?.translations?.[sourceLanguage] ||
+      LANGS.map((lang) => article?.translations?.[lang]).find((item) => item?.title);
+
+    if (!source?.title) {
+      diagnostics.push(`${article.id}: missing source-language translation data.`);
+      continue;
+    }
+
+    let changed = false;
+    for (const targetLang of enabledLanguages) {
+      if (targetLang === sourceLanguage) continue;
+      const current = article?.translations?.[targetLang];
+      if (current?.title && current.translationStatus === 'complete') continue;
+
+      try {
+        const translated = await translateBundle(
+          sourceLanguage,
+          targetLang,
+          source.title,
+          source.executiveSummary || article.originalDescription || source.title,
+          source.structuredBody || source.executiveSummary || article.originalDescription || source.title
+        );
+        article.translations[targetLang] = sourceTranslation(
+          targetLang,
+          article.id,
+          translated.title,
+          translated.description,
+          translated.body,
+          translated.title
+        );
+        changed = true;
+      } catch (error: any) {
+        diagnostics.push(
+          `${article.id}: ${targetLang.toUpperCase()} backfill failed: ${error?.message || error}`
+        );
+      }
+    }
+
+    if (changed) {
+      article.updatedAt = new Date().toISOString();
+      await upsert(TABLES.articles, article.id, article);
+      updated += 1;
+    }
+  }
+
+  return {
+    updated,
+    remaining: Math.max(0, pending.length - batch.length),
+    diagnostics,
+  };
+}
+
 export default async function handler(req: any, res: any) {
   const url = new URL(req.url || '/', 'https://local');
   const action = String(url.searchParams.get('action') || 'status');
@@ -853,8 +939,18 @@ export default async function handler(req: any, res: any) {
       results.push({ sourceId: source.id, source: source.name, ...result });
     }
 
-    const hasMore = results.some((result) => Number(result.remaining || 0) > 0);
-    const errors = results.flatMap((result) => result.diagnostics || []);
+    const translationBackfill = await backfillPendingTranslations(
+      articles,
+      enabledLanguages,
+      Math.max(1, Math.ceil(requestedBatch / 2))
+    );
+    const hasMore =
+      results.some((result) => Number(result.remaining || 0) > 0) ||
+      translationBackfill.remaining > 0;
+    const errors = [
+      ...results.flatMap((result) => result.diagnostics || []),
+      ...translationBackfill.diagnostics,
+    ];
     const log = await writeLog(
       action === 'import'
         ? `Single Source Ingest (${sourceId})`
@@ -872,6 +968,8 @@ export default async function handler(req: any, res: any) {
       count: total,
       newArticlesCount: total,
       persisted: total,
+      translatedArticles: translationBackfill.updated,
+      translationBacklog: translationBackfill.remaining,
       hasMore,
       batchSize: requestedBatch,
       ingestionMode: 'source-direct-multilingual',
