@@ -95,6 +95,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Automated Hourly Crawler State
   const [crawlerStatus, setCrawlerStatus] = useState<any | null>(null);
   const [isCrawlerRunning, setIsCrawlerRunning] = useState(false);
+  const [isTranslationRunning, setIsTranslationRunning] = useState(false);
   const [crawlerActionMessage, setCrawlerActionMessage] = useState<string | null>(null);
 
   // AI drafting studio state
@@ -161,6 +162,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setCrawlerActionMessage(`Crawl error after ${cycles} batch(es), ${total} persisted: ${msg}`);
     } finally {
       setIsCrawlerRunning(false);
+    }
+  };
+
+  const handleTranslatePending = async () => {
+    setIsTranslationRunning(true);
+    setCrawlerActionMessage('Translating pending article editions...');
+    try {
+      const res = await fetch('/api/crawler/translate-pending?batch=20', { method: 'POST' });
+      const raw = await res.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { error: raw || `HTTP ${res.status}` };
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || `Translation failed with HTTP ${res.status}.`);
+      }
+      setCrawlerActionMessage(
+        data.message ||
+          `Translated ${data.translatedArticles || 0} article(s); ${data.remaining || 0} remain.`
+      );
+      onRefreshArticles();
+      onRefreshLogs();
+      fetchCrawlerStatus();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setCrawlerActionMessage(`Translation error: ${msg}`);
+    } finally {
+      setIsTranslationRunning(false);
     }
   };
 
@@ -837,14 +868,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                 </div>
 
-                <button
-                  onClick={handleRunCrawlerNow}
-                  disabled={isCrawlerRunning}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap self-start sm:self-center"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isCrawlerRunning ? 'animate-spin' : ''}`} />
-                  <span>{isCrawlerRunning ? 'Crawling Wire Feeds...' : 'Run Hourly Crawl Cycle Now'}</span>
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2 self-start sm:self-center">
+                  <button
+                    onClick={handleRunCrawlerNow}
+                    disabled={isCrawlerRunning || isTranslationRunning}
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isCrawlerRunning ? 'animate-spin' : ''}`} />
+                    <span>{isCrawlerRunning ? 'Crawling Wire Feeds...' : 'Run Hourly Crawl Cycle Now'}</span>
+                  </button>
+                  <button
+                    onClick={handleTranslatePending}
+                    disabled={isCrawlerRunning || isTranslationRunning || !crawlerStatus?.translationProviderConfigured}
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <Globe className={`w-4 h-4 ${isTranslationRunning ? 'animate-pulse' : ''}`} />
+                    <span>{isTranslationRunning ? 'Translating...' : 'Translate Pending Articles'}</span>
+                  </button>
+                </div>
               </div>
 
               {crawlerActionMessage && (
@@ -864,7 +905,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold">Scheduler Cadence</span>
@@ -908,6 +949,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {crawlerStatus?.lastRunTime
                     ? `${new Date(crawlerStatus.lastRunTime).toLocaleDateString()} · ${crawlerStatus?.lastImportedCount ?? 0} imported · ${crawlerStatus?.lastRunStatus || 'completed'}`
                     : 'Awaiting scheduled interval'}
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between text-slate-500 mb-2">
+                  <span className="text-xs font-semibold">Translation Provider</span>
+                  <Globe className="w-4 h-4 text-indigo-600" />
+                </div>
+                <div className={`text-sm font-bold ${crawlerStatus?.translationProviderConfigured ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {crawlerStatus?.translationProviderConfigured ? 'Google Cloud Translation' : 'Not configured'}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  {crawlerStatus?.translationProviderConfigured
+                    ? `${crawlerStatus?.translationBacklog ?? 0} article(s) pending translation`
+                    : 'Set GOOGLE_TRANSLATE_API_KEY in Vercel'}
                 </div>
               </div>
 

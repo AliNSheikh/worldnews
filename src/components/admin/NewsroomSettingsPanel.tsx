@@ -222,7 +222,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
             })}
           </div>
           <p className="text-[11px] text-indigo-700">
-            Translation uses Google Cloud Translation when <code>GOOGLE_TRANSLATE_API_KEY</code> is configured. The existing Google API key is also tried as a fallback, but Cloud Translation must be enabled for that key's project.
+            Translation uses Google Cloud Translation when <code>GOOGLE_TRANSLATE_API_KEY</code> is configured in Vercel. Gemini credentials are not used for translation; this keeps article translation independent from Gemini quota.
           </p>
         </div>
 

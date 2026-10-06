@@ -466,12 +466,10 @@ async function translateBundle(
 ) {
   if (sourceLang === targetLang) return { title, description, body };
 
-  const apiKey = String(
-    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY || ''
-  ).trim();
+  const apiKey = String(process.env.GOOGLE_TRANSLATE_API_KEY || '').trim();
   if (!apiKey) {
     throw new Error(
-      'Translation is not configured. Set GOOGLE_TRANSLATE_API_KEY (preferred) or use a Google API key with Cloud Translation enabled.'
+      'Translation is not configured. Set GOOGLE_TRANSLATE_API_KEY to a dedicated Google Cloud Translation API key.'
     );
   }
 
@@ -726,9 +724,7 @@ async function backfillPendingTranslations(
   enabledLanguages: Lang[],
   maxArticles = 2
 ) {
-  const translationConfigured = Boolean(
-    process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
-  );
+  const translationConfigured = Boolean(process.env.GOOGLE_TRANSLATE_API_KEY);
   if (!translationConfigured) {
     return {
       updated: 0,
@@ -886,9 +882,17 @@ export default async function handler(req: any, res: any) {
         ingestionMode: 'source-direct',
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
         geminiRequired: false,
-        translationProviderConfigured: Boolean(
-          process.env.GOOGLE_TRANSLATE_API_KEY || process.env.GEMINI_API_KEY
-        ),
+        translationProviderConfigured: Boolean(process.env.GOOGLE_TRANSLATE_API_KEY),
+        translationProvider: process.env.GOOGLE_TRANSLATE_API_KEY
+          ? 'google-cloud-translation-v2'
+          : 'not-configured',
+        translationBacklog: articles.filter((article) =>
+          enabledLanguages.some(
+            (lang) =>
+              !article?.translations?.[lang]?.title ||
+              article?.translations?.[lang]?.translationStatus !== 'complete'
+          )
+        ).length,
         enabledLanguages,
         scheduler: 'appwrite-hourly-function',
         sourcesCount: sources.length,
@@ -917,6 +921,38 @@ export default async function handler(req: any, res: any) {
             lastError: source.lastError,
           }))
           .slice(0, 10),
+      });
+    }
+
+    if (action === 'translate') {
+      const batch = Math.min(100, Math.max(1, requestedBatch));
+      const translationBackfill = await backfillPendingTranslations(
+        articles,
+        enabledLanguages,
+        batch
+      );
+      const log = await writeLog(
+        'News Discover Translation Backfill',
+        translationBackfill.remaining === 0 ? 'success' : translationBackfill.updated > 0 ? 'warning' : 'failed',
+        translationBackfill.updated,
+        translationBackfill.diagnostics.length
+          ? translationBackfill.diagnostics.slice(0, 5).join(' | ')
+          : translationBackfill.remaining
+          ? `${translationBackfill.remaining} article(s) still require translation.`
+          : null,
+        cycleStartedAt
+      );
+      return json(res, translationBackfill.configured ? 200 : 422, {
+        success: translationBackfill.configured,
+        translatedArticles: translationBackfill.updated,
+        remaining: translationBackfill.remaining,
+        configured: translationBackfill.configured,
+        enabledLanguages,
+        completedAt: log.completedAt,
+        message: translationBackfill.configured
+          ? `Translated ${translationBackfill.updated} article(s); ${translationBackfill.remaining} article(s) remain in the translation backlog.`
+          : 'Automatic translation is ready in code but GOOGLE_TRANSLATE_API_KEY is not configured in Vercel.',
+        diagnostics: translationBackfill.diagnostics.slice(0, 10),
       });
     }
 
