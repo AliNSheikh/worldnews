@@ -31,10 +31,6 @@ type SupabaseRowWithPayload<T> = {
   payload: T;
 };
 
-type AppwritePayloadRow = {
-  payload: string;
-};
-
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -84,7 +80,7 @@ async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
   const output: T[] = [];
 
   for (let offset = 0; ; offset += pageSize) {
-    const page = await tablesDb.listRows<AppwritePayloadRow>({
+    const page = await tablesDb.listRows({
       databaseId: APPWRITE_DATABASE_ID,
       tableId,
       queries: [Query.limit(pageSize), Query.offset(offset)],
@@ -93,7 +89,8 @@ async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
     });
 
     for (const row of page.rows) {
-      const parsed = parsePayload<T>(row.payload);
+      const payload = (row as unknown as { payload?: unknown }).payload;
+      const parsed = parsePayload<T>(payload);
       if (parsed) output.push(parsed);
     }
 
