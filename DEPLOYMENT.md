@@ -56,12 +56,12 @@ The saved site URL is used to build canonical links, sitemap URLs, robots.txt si
 Production hourly ingestion is driven by the Appwrite Function **News Discover Hourly Fetch** (`news-discover-hourly`) with schedule:
 
 ```text
-7 * * * *
+0 * * * *
 ```
 
 The function calls the protected News Discover crawler automatically and keeps requesting server-safe batches until the currently available RSS/Atom items are drained. There is no application-level 10-article cap. If an unusually large backlog exceeds the function execution safety window, the next hourly execution resumes from the remaining unseen URLs.
 
-The function and Vercel share the same `CRON_SECRET`. The GitHub Actions workflow is retained only as a manual operator fallback.
+The function and Vercel share the same `CRON_SECRET`. GitHub Actions is also scheduled hourly as a redundant trigger; it repeatedly calls the protected crawler while `hasMore=true`, so there is no fixed total-article cap. Serverless calls remain bounded work units, but the scheduler keeps draining the backlog until the feeds are current.
 
 The existing Vercel daily cron can remain as a second backup on Hobby plans.
 
