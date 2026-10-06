@@ -2,6 +2,7 @@ import React from 'react';
 import { Clock, Globe, Play, Video } from 'lucide-react';
 import { Article, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
+import { getArticleTranslation } from '../utils/articleTranslation';
 
 interface ArticleCardProps {
   article: Article;
@@ -19,7 +20,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   onSelectCategory,
 }) => {
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-  const trans = article.translations[currentLang] || article.translations.en;
+  const trans = getArticleTranslation(article, currentLang);
 
   // Use video screenshot or reliable lead image
   const displayImage =
