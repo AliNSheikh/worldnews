@@ -41,7 +41,7 @@ In **Vercel → worldnews → Settings → Environment Variables**, add:
 - `ADMIN_PASSWORD`
 - `ADMIN_SESSION_SECRET`
 
-Gemini is no longer required for the automated crawler. The current ingestion path stores source-derived headlines, text, SEO metadata, and original source images directly.
+Gemini is no longer required for article retrieval. The ingestion path stores source-derived headlines, text, SEO metadata, and original source images directly. For automatic multilingual editions, configure `GOOGLE_TRANSLATE_API_KEY`; the crawler also attempts the existing Google API key as a fallback when Cloud Translation is enabled for that project.
 
 After changing environment variables, redeploy `main`.
 
@@ -53,23 +53,17 @@ The saved site URL is used to build canonical links, sitemap URLs, robots.txt si
 
 ## 4. Hourly ingestion
 
-The repository includes `.github/workflows/hourly-crawler.yml`, which calls the protected crawler once every hour.
-
-In **GitHub → worldnews → Settings → Secrets and variables → Actions** configure:
-
-- Repository variable: `NEWS_DISCOVER_URL` = the full production origin, for example `https://your-domain.example`
-- Repository secret: `CRON_SECRET` = exactly the same value as the Vercel `CRON_SECRET`
-
-The workflow calls:
+Production hourly ingestion is driven by the Appwrite Function **News Discover Hourly Fetch** (`news-discover-hourly`) with schedule:
 
 ```text
-GET /api/cron/hourly
-Authorization: Bearer <CRON_SECRET>
+7 * * * *
 ```
 
-It also supports **Run workflow** for a manual test.
+The function calls the protected News Discover crawler automatically and keeps requesting server-safe batches until the currently available RSS/Atom items are drained. There is no application-level 10-article cap. If an unusually large backlog exceeds the function execution safety window, the next hourly execution resumes from the remaining unseen URLs.
 
-The existing Vercel Hobby-compatible daily cron can remain as a backup. If the Vercel project is upgraded to a plan that permits hourly cron, its schedule can also be changed to `0 * * * *`.
+The function and Vercel share the same `CRON_SECRET`. The GitHub Actions workflow is retained only as a manual operator fallback.
+
+The existing Vercel daily cron can remain as a second backup on Hobby plans.
 
 ## 5. Source-direct article ingestion
 
@@ -153,3 +147,16 @@ Verify the migrated rows in Appwrite before removing the temporary Supabase vari
 - Keep Appwrite tables private and access them through server-side APIs.
 - Rotate any secret that has been exposed outside a secret manager.
 - Keep original source/provenance data for verification and rights review.
+
+
+## Automatic multilingual translation
+
+Newly fetched articles are always stored immediately in their source language. For each language enabled in the control panel, the crawler then requests a machine translation and stores that language edition in the same Appwrite article row.
+
+Recommended production configuration:
+
+```env
+GOOGLE_TRANSLATE_API_KEY="YOUR_CLOUD_TRANSLATION_API_KEY"
+```
+
+Cloud Translation usage/quota is separate from Gemini model quota. Translation failures do not discard the source article; the source edition remains published and the failed target language stays pending until a later retry/import strategy is applied.
