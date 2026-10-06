@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 
+export const maxDuration = 60;
+
 const adminCookieName = 'world_news_admin_session';
 let appPromise: Promise<any> | null = null;
 
@@ -45,6 +47,12 @@ function isValidAdminSession(token: string | undefined, secret: string): boolean
   );
 }
 
+function isAdminRequest(req: any): boolean {
+  const { adminSessionSecret } = getAdminConfig();
+  const cookies = parseCookies(req.headers?.cookie || '');
+  return isValidAdminSession(cookies[adminCookieName], adminSessionSecret);
+}
+
 function sendJson(res: any, statusCode: number, payload: unknown): void {
   if (res.headersSent) return;
   res.statusCode = statusCode;
@@ -54,19 +62,13 @@ function sendJson(res: any, statusCode: number, payload: unknown): void {
 }
 
 async function readJsonBody(req: any): Promise<Record<string, unknown>> {
-  if (req.body && typeof req.body === 'object') {
-    return req.body as Record<string, unknown>;
-  }
-
+  if (req.body && typeof req.body === 'object') return req.body as Record<string, unknown>;
   if (typeof req.body === 'string' && req.body.trim()) {
     return JSON.parse(req.body) as Record<string, unknown>;
   }
 
   const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   if (chunks.length === 0) return {};
   const raw = Buffer.concat(chunks).toString('utf8').trim();
   return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
@@ -116,10 +118,7 @@ async function handleAdminAuth(req: any, res: any, pathname: string): Promise<bo
   }
 
   if (pathname === '/api/admin/session' && method === 'GET') {
-    const cookies = parseCookies(req.headers?.cookie || '');
-    sendJson(res, 200, {
-      authenticated: isValidAdminSession(cookies[adminCookieName], adminSessionSecret),
-    });
+    sendJson(res, 200, { authenticated: isAdminRequest(req) });
     return true;
   }
 
@@ -130,6 +129,96 @@ async function handleAdminAuth(req: any, res: any, pathname: string): Promise<bo
       `${adminCookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`
     );
     sendJson(res, 200, { success: true });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleDirectRuntimeRoutes(req: any, res: any, pathname: string): Promise<boolean> {
+  const method = String(req.method || 'GET').toUpperCase();
+
+  if (pathname === '/api/health' && method === 'GET') {
+    const [{ db }, persistenceModule] = await Promise.all([
+      import('../server/db'),
+      import('../server/persistence'),
+    ]);
+    await db.ready();
+
+    sendJson(res, 200, {
+      status: db.persistenceError ? 'degraded' : 'healthy',
+      time: new Date().toISOString(),
+      articlesCount: db.articles.length,
+      categoriesCount: db.categories.length,
+      sourcesCount: db.sources.length,
+      persistence: db.getPersistenceStatus(),
+      appwriteApiKeyConfigured: Boolean(process.env.APPWRITE_API_KEY),
+      geminiApiKeyConfigured: Boolean(process.env.GEMINI_API_KEY),
+      persistenceProvider: persistenceModule.getPersistenceProvider(),
+    });
+    return true;
+  }
+
+  if (pathname === '/api/admin/persistence/sync' && method === 'POST') {
+    if (!isAdminRequest(req)) {
+      sendJson(res, 401, { error: 'Administrator authentication required.' });
+      return true;
+    }
+
+    const { db } = await import('../server/db');
+    await db.ready();
+    try {
+      const result = await db.syncAllToPersistence();
+      sendJson(res, 200, { success: true, ...result });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson(res, 503, { success: false, error: message, persistence: db.getPersistenceStatus() });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/crawler/status' && method === 'GET') {
+    const [{ db }, { getCrawlerStatus }] = await Promise.all([
+      import('../server/db'),
+      import('../server/crawler'),
+    ]);
+    await db.ready();
+    sendJson(res, 200, getCrawlerStatus());
+    return true;
+  }
+
+  if ((pathname === '/api/crawler/run-now' || pathname === '/api/automation/run') && method === 'POST') {
+    if (!isAdminRequest(req)) {
+      sendJson(res, 401, { error: 'Administrator authentication required.' });
+      return true;
+    }
+
+    const [{ db }, { runCrawlerCycle }] = await Promise.all([
+      import('../server/db'),
+      import('../server/crawler'),
+    ]);
+    await db.ready();
+    const result = await runCrawlerCycle();
+    sendJson(res, result.success ? 200 : 422, result);
+    return true;
+  }
+
+  if (pathname === '/api/cron/hourly' && method === 'GET') {
+    const cronSecret = process.env.CRON_SECRET || '';
+    if (!cronSecret || req.headers?.authorization !== `Bearer ${cronSecret}`) {
+      sendJson(res, cronSecret ? 401 : 503, {
+        error: cronSecret ? 'Unauthorized cron request.' : 'CRON_SECRET is not configured.',
+      });
+      return true;
+    }
+
+    const [{ db }, { runCrawlerCycle }] = await Promise.all([
+      import('../server/db'),
+      import('../server/crawler'),
+    ]);
+    await db.ready();
+    const result = await runCrawlerCycle();
+    sendJson(res, result.success ? 200 : 422, { ...result, ranAt: new Date().toISOString() });
     return true;
   }
 
@@ -147,9 +236,8 @@ export default async function handler(req: any, res: any) {
   const pathname = new URL(req.url || '/', 'http://localhost').pathname;
 
   try {
-    if (await handleAdminAuth(req, res, pathname)) {
-      return;
-    }
+    if (await handleAdminAuth(req, res, pathname)) return;
+    if (await handleDirectRuntimeRoutes(req, res, pathname)) return;
 
     const app = await getApp();
     return app(req, res);
@@ -159,9 +247,9 @@ export default async function handler(req: any, res: any) {
 
     const message = error instanceof Error ? error.message : String(error);
     sendJson(res, 500, {
-      error: 'The newsroom API failed to initialize. Check the Vercel runtime logs for the underlying module or environment error.',
-      code: 'API_INITIALIZATION_FAILED',
-      ...(process.env.NODE_ENV !== 'production' ? { detail: message } : {}),
+      error: 'The newsroom API failed to initialize or execute.',
+      code: 'API_RUNTIME_FAILED',
+      detail: message,
     });
   }
 }
