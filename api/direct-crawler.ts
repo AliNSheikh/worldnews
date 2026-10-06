@@ -12,6 +12,7 @@ const TABLES = {
   logs: 'newsroom_logs',
 };
 const LANGS = ['en', 'ar', 'de', 'es', 'fr'] as const;
+type Lang = (typeof LANGS)[number];
 
 type FeedItem = {
   title: string;
@@ -30,10 +31,18 @@ function json(res: any, status: number, payload: unknown) {
 }
 
 function cookieMap(header = ''): Record<string, string> {
-  return Object.fromEntries(header.split(';').map((v) => v.trim()).filter(Boolean).map((v) => {
-    const i = v.indexOf('=');
-    return i >= 0 ? [decodeURIComponent(v.slice(0, i)), decodeURIComponent(v.slice(i + 1))] : [v, ''];
-  }));
+  return Object.fromEntries(
+    header
+      .split(';')
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .map((v) => {
+        const i = v.indexOf('=');
+        return i >= 0
+          ? [decodeURIComponent(v.slice(0, i)), decodeURIComponent(v.slice(i + 1))]
+          : [v, ''];
+      })
+  );
 }
 
 function isAdmin(req: any): boolean {
@@ -62,19 +71,31 @@ function appwriteHeaders(): Record<string, string> {
 }
 
 async function aw(path: string, init: RequestInit = {}): Promise<any> {
-  const r = await fetch(`${ENDPOINT}${path}`, { ...init, headers: { ...appwriteHeaders(), ...(init.headers || {}) } });
-  const text = await r.text();
+  const response = await fetch(`${ENDPOINT}${path}`, {
+    ...init,
+    headers: { ...appwriteHeaders(), ...(init.headers || {}) },
+  });
+  const text = await response.text();
   let parsed: any = null;
-  try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
-  if (!r.ok) {
-    const detail = typeof parsed === 'string' ? parsed : parsed?.message || JSON.stringify(parsed);
-    throw new Error(`Appwrite ${r.status}: ${detail || r.statusText}`);
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+  if (!response.ok) {
+    const detail =
+      typeof parsed === 'string' ? parsed : parsed?.message || JSON.stringify(parsed);
+    throw new Error(`Appwrite ${response.status}: ${detail || response.statusText}`);
   }
   return parsed;
 }
 
 function tablePath(table: string): string {
   return `/tablesdb/${encodeURIComponent(DATABASE_ID)}/tables/${encodeURIComponent(table)}/rows`;
+}
+
+function query(method: string, values: unknown[] = []): string {
+  return JSON.stringify({ method, values });
 }
 
 function safeRowId(id: string): string {
@@ -86,19 +107,19 @@ function parsePayload(row: any): any | null {
   const raw = row?.data?.payload ?? row?.payload;
   if (!raw) return null;
   if (typeof raw === 'object') return raw;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-function paginationQuery(method: 'limit' | 'offset', value: number): string {
-  return JSON.stringify({ method, values: [value] });
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function listPayloads(table: string): Promise<any[]> {
   const output: any[] = [];
   for (let offset = 0; offset < 5000; offset += 100) {
     const qs = new URLSearchParams();
-    qs.append('queries[]', paginationQuery('limit', 100));
-    qs.append('queries[]', paginationQuery('offset', offset));
+    qs.append('queries[]', query('limit', [100]));
+    qs.append('queries[]', query('offset', [offset]));
     qs.set('total', 'false');
     qs.set('ttl', '0');
     const result = await aw(`${tablePath(table)}?${qs.toString()}`);
@@ -122,8 +143,11 @@ async function upsert(table: string, id: string, value: any) {
 function decodeEntities(value: string): string {
   return String(value || '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
 }
@@ -140,45 +164,74 @@ function stripHtml(value: string): string {
 function tag(block: string, names: string[]): string {
   for (const name of names) {
     const escaped = name.replace(':', '\\:');
-    const m = block.match(new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}>`, 'i'));
-    if (m?.[1]) return decodeEntities(m[1]).trim();
+    const match = block.match(
+      new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}>`, 'i')
+    );
+    if (match?.[1]) return decodeEntities(match[1]).trim();
   }
   return '';
 }
 
 function attr(block: string, tagName: string, attrName: string): string {
-  const m = block.match(new RegExp(`<${tagName}\\b[^>]*\\b${attrName}=["']([^"']+)["'][^>]*>`, 'i'));
-  return m?.[1] ? decodeEntities(m[1]).trim() : '';
+  const match = block.match(
+    new RegExp(`<${tagName}\\b[^>]*\\b${attrName}=["']([^"']+)["'][^>]*>`, 'i')
+  );
+  return match?.[1] ? decodeEntities(match[1]).trim() : '';
 }
 
 function parseFeed(xml: string): FeedItem[] {
-  const rss = Array.from(xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)).map((m) => m[1]);
-  const atom = rss.length ? [] : Array.from(xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)).map((m) => m[1]);
+  const rss = Array.from(xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)).map(
+    (m) => m[1]
+  );
+  const atom = rss.length
+    ? []
+    : Array.from(xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)).map((m) => m[1]);
   const blocks = rss.length ? rss : atom;
-  return blocks.map((block) => {
-    let link = tag(block, ['link']);
-    if (!/^https?:\/\//i.test(link)) link = attr(block, 'link', 'href');
-    const enclosure = block.match(/<enclosure\b[^>]*url=["']([^"']+)["'][^>]*>/i);
-    const media = block.match(/<(?:media:content|media:thumbnail)\b[^>]*url=["']([^"']+)["'][^>]*>/i);
-    const enclosureType = block.match(/<enclosure\b[^>]*type=["']([^"']+)["'][^>]*>/i)?.[1] || '';
-    const imageUrl = media?.[1] || (enclosure && (/image/i.test(enclosureType) || /\.(?:jpe?g|png|webp)(?:\?|$)/i.test(enclosure[1])) ? enclosure[1] : undefined);
-    const rawDescription = tag(block, ['description', 'summary']);
-    const rawContent = tag(block, ['content:encoded', 'content']);
-    return {
-      title: stripHtml(tag(block, ['title'])),
-      link: link.trim(),
-      pubDate: tag(block, ['pubDate', 'published', 'updated', 'dc:date']) || new Date().toISOString(),
-      description: stripHtml(rawDescription),
-      content: stripHtml(rawContent || rawDescription),
-      imageUrl,
-    };
-  }).filter((item) => item.title && /^https?:\/\//i.test(item.link));
+
+  return blocks
+    .map((block) => {
+      let link = tag(block, ['link']);
+      if (!/^https?:\/\//i.test(link)) link = attr(block, 'link', 'href');
+
+      const enclosure = block.match(/<enclosure\b[^>]*url=["']([^"']+)["'][^>]*>/i);
+      const media = block.match(
+        /<(?:media:content|media:thumbnail)\b[^>]*url=["']([^"']+)["'][^>]*>/i
+      );
+      const enclosureType =
+        block.match(/<enclosure\b[^>]*type=["']([^"']+)["'][^>]*>/i)?.[1] || '';
+      const imageUrl =
+        media?.[1] ||
+        (enclosure &&
+        (/image/i.test(enclosureType) ||
+          /\.(?:jpe?g|png|webp|avif)(?:\?|$)/i.test(enclosure[1]))
+          ? enclosure[1]
+          : undefined);
+
+      const rawDescription = tag(block, ['description', 'summary']);
+      const rawContent = tag(block, ['content:encoded', 'content']);
+
+      return {
+        title: stripHtml(tag(block, ['title'])),
+        link: link.trim(),
+        pubDate:
+          tag(block, ['pubDate', 'published', 'updated', 'dc:date']) ||
+          new Date().toISOString(),
+        description: stripHtml(rawDescription),
+        content: stripHtml(rawContent || rawDescription),
+        imageUrl,
+      };
+    })
+    .filter((item) => item.title && /^https?:\/\//i.test(item.link));
 }
 
-async function fetchText(url: string, timeoutMs = 9000, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,*/*'): Promise<string> {
+async function fetchText(
+  url: string,
+  timeoutMs = 10000,
+  accept = 'text/html,application/xhtml+xml,application/xml,text/xml,*/*'
+): Promise<string> {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; WorldNewsBot/1.0; +https://worldnews-topaz.vercel.app)',
+      'User-Agent': 'Mozilla/5.0 (compatible; NewsDiscoverBot/1.0; +https://newsdiscover.example)',
       Accept: accept,
     },
     redirect: 'follow',
@@ -190,90 +243,182 @@ async function fetchText(url: string, timeoutMs = 9000, accept = 'text/html,appl
 
 function meta(html: string, key: string): string {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const a = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, 'i'));
-  const b = html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["'][^>]*>`, 'i'));
+  const a = html.match(
+    new RegExp(
+      `<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+      'i'
+    )
+  );
+  const b = html.match(
+    new RegExp(
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["'][^>]*>`,
+      'i'
+    )
+  );
   return decodeEntities(a?.[1] || b?.[1] || '').trim();
 }
 
-function extractPage(html: string) {
-  const description = meta(html, 'og:description') || meta(html, 'description') || meta(html, 'twitter:description');
-  const imageUrl = meta(html, 'og:image') || meta(html, 'twitter:image');
+function absoluteUrl(candidate: string | undefined, base: string): string {
+  if (!candidate) return '';
+  try {
+    return new URL(candidate, base).toString();
+  } catch {
+    return '';
+  }
+}
+
+function extractPage(html: string, pageUrl: string) {
+  const description =
+    meta(html, 'og:description') ||
+    meta(html, 'description') ||
+    meta(html, 'twitter:description');
+  const imageUrl = absoluteUrl(
+    meta(html, 'og:image') || meta(html, 'twitter:image'),
+    pageUrl
+  );
+  const author =
+    meta(html, 'author') ||
+    meta(html, 'article:author') ||
+    meta(html, 'byl');
+
   let articleBody = '';
-  for (const script of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+  for (const script of html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
     try {
       const parsed = JSON.parse(decodeEntities(script[1]));
       const stack = Array.isArray(parsed) ? [...parsed] : [parsed];
       while (stack.length) {
         const item = stack.shift();
         if (!item || typeof item !== 'object') continue;
-        if (typeof item.articleBody === 'string' && item.articleBody.length > articleBody.length) articleBody = item.articleBody;
+        if (
+          typeof item.articleBody === 'string' &&
+          item.articleBody.length > articleBody.length
+        ) {
+          articleBody = item.articleBody;
+        }
         if (Array.isArray(item['@graph'])) stack.push(...item['@graph']);
       }
-    } catch { /* ignore invalid publisher JSON-LD */ }
+    } catch {
+      // Publisher JSON-LD can be malformed; paragraph extraction is the fallback.
+    }
   }
+
   if (!articleBody) {
-    const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] || html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] || html;
-    const paragraphs = Array.from(article.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)).map((m) => stripHtml(m[1])).filter((p) => p.length >= 30);
+    const main =
+      html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] ||
+      html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ||
+      html;
+    const paragraphs = Array.from(main.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi))
+      .map((m) => stripHtml(m[1]))
+      .filter((p) => p.length >= 30);
     articleBody = paragraphs.join('\n\n');
   }
-  return { description: stripHtml(description), imageUrl, articleText: stripHtml(articleBody).slice(0, 22000) };
-}
 
-function slugify(value: string, fallback: string): string {
-  const slug = String(value || '').toLowerCase().trim().replace(/[^a-z0-9\u0600-\u06ff]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return slug || fallback;
-}
-
-function normalizeTranslation(lang: string, value: any, fallbackTitle: string, id: string) {
-  const title = String(value?.title || (lang === 'en' ? fallbackTitle : '')).trim();
-  const summary = String(value?.executiveSummary || value?.summary || '').trim();
-  const body = String(value?.structuredBody || value?.body || summary).trim();
   return {
-    language: lang,
-    title,
-    slug: slugify(value?.slug || title, `${id}-${lang}`),
-    executiveSummary: summary,
-    structuredBody: body,
-    seoTitle: String(value?.seoTitle || title).slice(0, 70),
-    metaDescription: String(value?.metaDescription || summary || title).slice(0, 180),
-    keywords: Array.isArray(value?.keywords) ? value.keywords.filter(Boolean).slice(0, 10) : [],
-    tags: Array.isArray(value?.tags) ? value.tags.filter(Boolean).slice(0, 8) : [],
-    imageAlt: String(value?.imageAlt || title || fallbackTitle),
-    faq: Array.isArray(value?.faq) ? value.faq.slice(0, 5) : [],
-    translationStatus: title && body ? 'complete' : 'needs-review',
-    entities: Array.isArray(value?.entities) ? value.entities.filter(Boolean).slice(0, 20) : [],
+    description: stripHtml(description),
+    imageUrl,
+    articleText: stripHtml(articleBody).slice(0, 18000),
+    author: stripHtml(author),
   };
 }
 
-async function generateTranslations(title: string, description: string, articleText: string): Promise<Record<string, any>> {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) throw new Error('GEMINI_API_KEY is missing from the active Vercel environment.');
-  const model = String(process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
-  const prompt = `You are the multilingual editorial engine for World News. Rewrite ONLY the verified facts below. Never invent quotes, people, dates, numbers, locations, causes, reactions, consequences, or background. If a fact is absent, omit it. Do not mention the upstream publisher or AI in reader-facing copy.\n\nVERIFIED HEADLINE:\n${title}\n\nVERIFIED DESCRIPTION:\n${description}\n\nVERIFIED ARTICLE TEXT:\n${articleText.slice(0, 18000)}\n\nReturn valid JSON only with this exact top-level shape:\n{"translations":{"en":{},"ar":{},"de":{},"es":{},"fr":{}}}\nFor every language object include: title, slug, executiveSummary, structuredBody, seoTitle, metaDescription, keywords (array), tags (array), imageAlt, faq (array), entities (array). Arabic must be Modern Standard Arabic. All five editions must preserve exactly the same facts and uncertainty.`;
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.15, maxOutputTokens: 8192 },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const raw = await response.text();
-  let envelope: any;
-  try { envelope = JSON.parse(raw); } catch { throw new Error(`Gemini returned non-JSON HTTP response (${response.status}).`); }
-  if (!response.ok) throw new Error(`Gemini ${response.status}: ${envelope?.error?.message || raw.slice(0, 300)}`);
-  const text = envelope?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
-  if (!text) throw new Error('Gemini returned an empty editorial response.');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('Gemini editorial response did not contain a JSON object.');
-  const parsed = JSON.parse(text.slice(start, end + 1));
-  if (!parsed?.translations) throw new Error('Gemini editorial response is missing translations.');
-  return parsed.translations;
+function normalizeLang(value: unknown): Lang {
+  const lang = String(value || 'en').toLowerCase().slice(0, 2) as Lang;
+  return LANGS.includes(lang) ? lang : 'en';
 }
 
-async function writeLog(source: string, status: 'success' | 'failed' | 'warning', importedCount: number, errorMessage: string | null) {
+function slugify(value: string, fallback: string): string {
+  const slug = String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\u0600-\u06ff]+/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || fallback;
+}
+
+function shorten(value: string, max: number): string {
+  const clean = String(value || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max - 1);
+  const boundary = cut.lastIndexOf(' ');
+  return `${(boundary > max * 0.65 ? cut.slice(0, boundary) : cut).trim()}…`;
+}
+
+function deriveKeywords(title: string, description: string): string[] {
+  const stop = new Set([
+    'the','and','for','with','that','this','from','into','over','after','before','about','have','has',
+    'was','were','are','its','their','they','them','will','would','could','should','a','an','of','to',
+    'in','on','at','by','as','is','be','or','but','not','new','latest','says','said'
+  ]);
+  const words = `${title} ${description}`
+    .toLowerCase()
+    .match(/[\p{L}\p{N}][\p{L}\p{N}-]{2,}/gu) || [];
+  const counts = new Map<string, number>();
+  for (const word of words) {
+    if (stop.has(word)) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word]) => word);
+}
+
+function emptyTranslation(lang: Lang, id: string) {
+  return {
+    language: lang,
+    title: '',
+    slug: `${id}-${lang}`,
+    executiveSummary: '',
+    structuredBody: '',
+    seoTitle: '',
+    metaDescription: '',
+    keywords: [],
+    tags: [],
+    imageAlt: '',
+    faq: [],
+    translationStatus: 'draft',
+    entities: [],
+  };
+}
+
+function sourceTranslation(
+  lang: Lang,
+  id: string,
+  title: string,
+  description: string,
+  body: string,
+  imageAlt: string
+) {
+  const executiveSummary = shorten(description || body || title, 320);
+  const metaDescription = shorten(description || body || title, 158);
+  const seoTitle = shorten(title, 62);
+  const keywords = deriveKeywords(title, description || body);
+  return {
+    language: lang,
+    title,
+    slug: slugify(title, id),
+    executiveSummary,
+    structuredBody: body || executiveSummary,
+    seoTitle,
+    metaDescription,
+    keywords,
+    tags: keywords.slice(0, 6),
+    imageAlt: imageAlt || title,
+    faq: [],
+    translationStatus: 'complete',
+    entities: [],
+  };
+}
+
+async function writeLog(
+  source: string,
+  status: 'success' | 'failed' | 'warning',
+  importedCount: number,
+  errorMessage: string | null
+) {
   const now = new Date().toISOString();
   const entry = {
     id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -291,63 +436,107 @@ async function writeLog(source: string, status: 'success' | 'failed' | 'warning'
 async function processSource(source: any, existingArticles: any[], maxNew: number) {
   const diagnostics: string[] = [];
   let imported = 0;
+
   try {
-    const xml = await fetchText(source.rssUrl, 9000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
-    const items = parseFeed(xml).sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+    const xml = await fetchText(
+      source.rssUrl,
+      10000,
+      'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*'
+    );
+    const items = parseFeed(xml).sort(
+      (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
+    );
     if (!items.length) throw new Error('Feed returned no parseable RSS/Atom items.');
 
-    for (const item of items.slice(0, 12)) {
+    for (const item of items.slice(0, 20)) {
       if (imported >= maxNew) break;
-      if (existingArticles.some((a) => a.originalUrl === item.link)) continue;
+      if (existingArticles.some((article) => article.originalUrl === item.link)) continue;
+
       const itemDate = new Date(item.pubDate);
-      if (Number.isFinite(itemDate.getTime()) && Date.now() - itemDate.getTime() > 7 * 86400000) continue;
+      if (
+        Number.isFinite(itemDate.getTime()) &&
+        Date.now() - itemDate.getTime() > 14 * 86400000
+      ) {
+        continue;
+      }
 
       try {
-        let page = { description: '', imageUrl: '', articleText: '' };
-        try { page = extractPage(await fetchText(item.link, 9000)); } catch (e: any) { diagnostics.push(`${item.title}: page extraction warning: ${e?.message || e}`); }
-        const description = page.description || item.description || item.content || item.title;
-        const sourceText = (page.articleText || item.content || item.description || '').trim();
-        if (sourceText.length < 120) {
-          diagnostics.push(`${item.title}: skipped because verified source text was too short.`);
+        let page = { description: '', imageUrl: '', articleText: '', author: '' };
+        try {
+          page = extractPage(await fetchText(item.link, 10000), item.link);
+        } catch (error: any) {
+          diagnostics.push(
+            `${item.title}: article-page extraction warning: ${error?.message || error}`
+          );
+        }
+
+        const title = stripHtml(item.title);
+        const description =
+          page.description || item.description || shorten(item.content, 320) || title;
+        const sourceBody =
+          [page.articleText, item.content, item.description]
+            .map((value) => String(value || '').trim())
+            .sort((a, b) => b.length - a.length)[0] || description;
+
+        if (!title || sourceBody.length < 40) {
+          diagnostics.push(`${item.title}: skipped because source text was unavailable.`);
           continue;
         }
 
-        const generated = await generateTranslations(item.title, description, sourceText);
         const id = `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-        const translations: Record<string, any> = {};
-        for (const lang of LANGS) translations[lang] = normalizeTranslation(lang, generated[lang], item.title, id);
-        const complete = LANGS.every((lang) => translations[lang].translationStatus === 'complete');
+        const sourceLanguage = normalizeLang(source.defaultLanguage || source.language);
+        const translations: Record<Lang, any> = Object.fromEntries(
+          LANGS.map((lang) => [lang, emptyTranslation(lang, id)])
+        ) as Record<Lang, any>;
+        translations[sourceLanguage] = sourceTranslation(
+          sourceLanguage,
+          id,
+          title,
+          description,
+          sourceBody,
+          title
+        );
+
+        const image =
+          absoluteUrl(page.imageUrl, item.link) ||
+          absoluteUrl(item.imageUrl, item.link) ||
+          '';
+
         const article = {
           id,
           category: source.category || 'world',
-          editorialType: 'ai-assisted',
+          editorialType: 'original',
           originalSource: source.name,
           originalUrl: item.link,
           originalDescription: description,
-          officialImageUrl: page.imageUrl || item.imageUrl || undefined,
-          image: page.imageUrl || item.imageUrl || '',
-          imageCredit: page.imageUrl || item.imageUrl ? 'Editorial image from verified source metadata' : 'World News Visual Desk',
-          imageProvenance: page.imageUrl || item.imageUrl ? 'Verified feed/article metadata' : 'No verified source image available',
-          imageLicense: page.imageUrl || item.imageUrl ? 'Upstream editorial media; verify publishing rights before monetized use' : 'No external image attached',
-          status: complete ? 'published' : 'review',
+          sourceLanguage,
+          officialImageUrl: image || undefined,
+          image,
+          imageCredit: image ? source.name : '',
+          imageProvenance: image ? 'Original source/feed metadata' : 'No source image available',
+          imageLicense: image
+            ? 'Source-provided image; publisher licensing terms apply'
+            : 'No external image attached',
+          status: 'published',
           isBreaking: false,
           isPinned: false,
           priority: 5,
           views: 0,
           shares: 0,
-          publishedAt: Number.isFinite(itemDate.getTime()) ? itemDate.toISOString() : new Date().toISOString(),
+          publishedAt: Number.isFinite(itemDate.getTime())
+            ? itemDate.toISOString()
+            : new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          byline: 'World News International Bureau',
+          byline: page.author || source.name,
           translations,
           hasVideo: false,
         };
 
-        // Persistence is the success gate: never count an article until Appwrite confirms the row.
         await upsert(TABLES.articles, article.id, article);
         existingArticles.unshift(article);
         imported += 1;
-      } catch (e: any) {
-        diagnostics.push(`${item.title}: ${e?.message || e}`);
+      } catch (error: any) {
+        diagnostics.push(`${item.title}: ${error?.message || error}`);
       }
     }
 
@@ -358,9 +547,10 @@ async function processSource(source: any, existingArticles: any[], maxNew: numbe
       articlesCount: Number(source.articlesCount || 0) + imported,
     };
     await upsert(TABLES.sources, source.id, updated);
+
     return { imported, diagnostics, parsedItems: items.length };
-  } catch (e: any) {
-    const message = e?.message || String(e);
+  } catch (error: any) {
+    const message = error?.message || String(error);
     await upsert(TABLES.sources, source.id, { ...source, lastError: message });
     return { imported: 0, diagnostics: [message], parsedItems: 0 };
   }
@@ -370,11 +560,14 @@ export default async function handler(req: any, res: any) {
   const url = new URL(req.url || '/', 'https://local');
   const action = String(url.searchParams.get('action') || 'status');
   const sourceId = url.searchParams.get('id');
+
   try {
     const isCron = action === 'cron';
     if (isCron) {
       const secret = String(process.env.CRON_SECRET || '');
-      if (!secret || req.headers?.authorization !== `Bearer ${secret}`) return json(res, 401, { error: 'Unauthorized cron request.' });
+      if (!secret || req.headers?.authorization !== `Bearer ${secret}`) {
+        return json(res, 401, { error: 'Unauthorized cron request.' });
+      }
     } else if (action !== 'status' && !isAdmin(req)) {
       return json(res, 401, { error: 'Administrator authentication required.' });
     }
@@ -386,61 +579,106 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, {
         running: false,
         persistenceProvider: 'appwrite-direct',
+        ingestionMode: 'source-direct',
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
-        geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+        geminiRequired: false,
         sourcesCount: sources.length,
-        activeSourcesCount: sources.filter((s) => s.isActive !== false).length,
+        activeSourcesCount: sources.filter((source) => source.isActive !== false).length,
         articlesCount: articles.length,
-        lastRuns: sources.filter((s) => s.lastImport).map((s) => ({ source: s.name, lastImport: s.lastImport, lastError: s.lastError })).slice(0, 10),
+        lastRuns: sources
+          .filter((source) => source.lastImport)
+          .map((source) => ({
+            source: source.name,
+            lastImport: source.lastImport,
+            lastError: source.lastError,
+          }))
+          .slice(0, 10),
       });
     }
 
     if (action === 'test') {
-      const source = sources.find((s) => s.id === sourceId);
+      const source = sources.find((value) => value.id === sourceId);
       if (!source) return json(res, 404, { error: 'Source not found.' });
       const started = Date.now();
-      const xml = await fetchText(source.rssUrl, 9000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
+      const xml = await fetchText(
+        source.rssUrl,
+        10000,
+        'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*'
+      );
       const items = parseFeed(xml);
       return json(res, items.length ? 200 : 422, {
         success: items.length > 0,
         status: items.length ? 'active' : 'empty',
         responseTimeMs: Date.now() - started,
         parsedItems: items.length,
-        sample: items.slice(0, 3).map((i) => ({ title: i.title, link: i.link, pubDate: i.pubDate, hasImage: Boolean(i.imageUrl) })),
-        message: items.length ? `Connected to '${source.name}' and parsed ${items.length} feed items.` : `No RSS/Atom items could be parsed from '${source.name}'.`,
+        sample: items.slice(0, 3).map((item) => ({
+          title: item.title,
+          link: item.link,
+          pubDate: item.pubDate,
+          hasImage: Boolean(item.imageUrl),
+        })),
+        message: items.length
+          ? `Connected to '${source.name}' and parsed ${items.length} feed items.`
+          : `No RSS/Atom items could be parsed from '${source.name}'.`,
       });
     }
 
-    const selected = action === 'import'
-      ? sources.filter((s) => s.id === sourceId)
-      : sources.filter((s) => s.isActive !== false);
-    if (!selected.length) return json(res, 404, { error: action === 'import' ? 'Source not found.' : 'No active sources are configured.' });
+    const selected =
+      action === 'import'
+        ? sources.filter((source) => source.id === sourceId)
+        : sources.filter((source) => source.isActive !== false);
+
+    if (!selected.length) {
+      return json(res, 404, {
+        error: action === 'import' ? 'Source not found.' : 'No active sources are configured.',
+      });
+    }
 
     let total = 0;
     const results: any[] = [];
-    // Keep serverless work bounded. Manual full run imports at most 3 articles total; single-source import at most 2.
-    const totalLimit = action === 'import' ? 2 : 3;
+    const totalLimit = action === 'import' ? 4 : 10;
+
     for (const source of selected) {
       if (total >= totalLimit) break;
-      const result = await processSource(source, articles, Math.min(action === 'import' ? 2 : 1, totalLimit - total));
+      const result = await processSource(
+        source,
+        articles,
+        Math.min(action === 'import' ? 4 : 2, totalLimit - total)
+      );
       total += result.imported;
       results.push({ sourceId: source.id, source: source.name, ...result });
     }
 
-    const errors = results.flatMap((r) => r.diagnostics || []);
-    await writeLog(action === 'import' ? `Single Source Ingest (${sourceId})` : 'Direct Appwrite AI Crawler', total > 0 ? 'success' : 'warning', total, total > 0 ? null : errors.slice(0, 4).join(' | ') || 'No new articles were imported.');
+    const errors = results.flatMap((result) => result.diagnostics || []);
+    await writeLog(
+      action === 'import' ? `Single Source Ingest (${sourceId})` : 'News Discover Source Crawler',
+      total > 0 ? 'success' : 'warning',
+      total,
+      total > 0
+        ? null
+        : errors.slice(0, 4).join(' | ') || 'No new eligible feed items were found.'
+    );
 
     return json(res, total > 0 ? 200 : 422, {
       success: total > 0,
       count: total,
+      newArticlesCount: total,
       persisted: total,
+      ingestionMode: 'source-direct',
       results,
-      message: total > 0
-        ? `Crawler fetched and persisted ${total} article(s) to Appwrite. Published articles are now available to the homepage API.`
-        : `Crawler completed but did not persist an article. ${errors.slice(0, 3).join(' | ') || 'No new eligible feed items were found.'}`,
+      message:
+        total > 0
+          ? `Crawler fetched and persisted ${total} source-derived article(s) to Appwrite without Gemini.`
+          : `Crawler completed but did not persist an article. ${errors
+              .slice(0, 3)
+              .join(' | ') || 'No new eligible feed items were found.'}`,
     });
   } catch (error: any) {
     console.error('[direct-crawler]', error);
-    return json(res, 503, { success: false, error: error?.message || String(error), code: 'DIRECT_CRAWLER_FAILED' });
+    return json(res, 503, {
+      success: false,
+      error: error?.message || String(error),
+      code: 'DIRECT_CRAWLER_FAILED',
+    });
   }
 }
