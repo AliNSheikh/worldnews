@@ -207,13 +207,25 @@ export function App() {
   // User Actions
   const handleLanguageChange = (lang: LanguageCode) => {
     const from = currentLang;
-    setCurrentLang(lang);
-    analytics.trackLanguageChange(from, lang);
 
     if (activeArticle) {
       const trans = getArticleTranslation(activeArticle, lang);
-      window.history.pushState({}, '', `/${lang}/news/${activeArticle.category}/${trans.slug}`);
-    } else if (selectedCategory !== 'all') {
+      const effectiveLang = hasCompleteTranslation(activeArticle, lang)
+        ? lang
+        : trans.language;
+      setCurrentLang(effectiveLang);
+      analytics.trackLanguageChange(from, effectiveLang);
+      window.history.pushState(
+        {},
+        '',
+        `/${effectiveLang}/news/${activeArticle.category}/${trans.slug}`
+      );
+      return;
+    }
+
+    setCurrentLang(lang);
+    analytics.trackLanguageChange(from, lang);
+    if (selectedCategory !== 'all') {
       window.history.pushState({}, '', `/${lang}/category/${selectedCategory}`);
     } else {
       window.history.pushState({}, '', `/${lang}`);
@@ -225,7 +237,15 @@ export function App() {
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     const trans = getArticleTranslation(article, currentLang);
-    window.history.pushState({}, '', `/${currentLang}/news/${article.category}/${trans.slug}`);
+    const effectiveLang = hasCompleteTranslation(article, currentLang)
+      ? currentLang
+      : trans.language;
+    if (effectiveLang !== currentLang) setCurrentLang(effectiveLang);
+    window.history.pushState(
+      {},
+      '',
+      `/${effectiveLang}/news/${article.category}/${trans.slug}`
+    );
   };
 
   const handleSelectCategory = (slug: string) => {
