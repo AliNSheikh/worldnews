@@ -184,7 +184,7 @@ export function App() {
     if (!activeArticle && !isAdminOpen) {
       if (selectedCategory === 'all') {
         updatePageSEO({
-          title: settings.names[currentLang] || 'World News',
+          title: settings.names[currentLang] || 'News Discover',
           description: settings.descriptions[currentLang] || '24/7 International Digital Newsroom',
           lang: currentLang,
           canonicalPath: `/${currentLang}`,
@@ -474,7 +474,7 @@ export function App() {
                     </h3>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Transparent reporting standards. Learn how World News distinguishes original journalism, AI assistance, and verified wire attribution.
+                    Transparent source standards. Learn how News Discover handles source-derived imports, original media metadata, verification, and editorial updates.
                   </p>
                   <button
                     onClick={() => setIsCharterOpen(true)}
