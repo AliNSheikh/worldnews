@@ -838,6 +838,30 @@ export default async function handler(req: any, res: any) {
       return json(res, 401, { error: 'Administrator authentication required.' });
     }
 
+    if (isCron && url.searchParams.get('summary') === '1') {
+      const count = Math.max(0, Number(url.searchParams.get('count') || 0) || 0);
+      const cycles = Math.max(0, Number(url.searchParams.get('cycles') || 0) || 0);
+      const hasMore = url.searchParams.get('hasMore') === 'true';
+      const startedAt = url.searchParams.get('startedAt') || cycleStartedAt;
+      const log = await writeLog(
+        'News Discover Hourly Fetch Summary',
+        hasMore ? 'warning' : 'success',
+        count,
+        hasMore
+          ? `Scheduler safety window ended after ${cycles} batch(es); remaining unseen items will resume next hour.`
+          : `Hourly feed drain completed in ${cycles} batch(es).`,
+        startedAt
+      );
+      return json(res, 200, {
+        success: true,
+        summary: true,
+        importedCount: count,
+        cycles,
+        hasMore,
+        completedAt: log.completedAt,
+      });
+    }
+
     const [sources, articles, logs, settingsRows] = await Promise.all([
       listPayloads(TABLES.sources),
       listPayloads(TABLES.articles),
