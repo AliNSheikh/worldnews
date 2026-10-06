@@ -124,14 +124,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage('Starting full feed drain...');
+    setCrawlerActionMessage('Starting full feed drain with no fixed article cap...');
     let total = 0;
     let cycles = 0;
     let hasMore = true;
     try {
       while (hasMore) {
         cycles += 1;
-        const res = await fetch('/api/crawler/run-now?batch=4', { method: 'POST' });
+        const res = await fetch('/api/crawler/run-now?batch=30', { method: 'POST' });
         const raw = await res.text();
         let data: any = {};
         try {
