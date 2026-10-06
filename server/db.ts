@@ -72,8 +72,6 @@ class NewsroomDatabase {
         this.persistenceError = message;
         this.lastHydratedAt = Date.now();
 
-        // If persistent storage was expected but could not be reached, do not
-        // expose bundled demo articles as though they were production data.
         if (isPersistenceConfigured()) {
           this.articles = [];
           this.comments = [];
@@ -255,31 +253,102 @@ class NewsroomDatabase {
     return this.articles.find((a) => Object.values(a.translations).some((t) => t.slug === slug));
   }
 
-  public createArticle(article: Article): Article {
-    if (article.originalUrl && this.articles.some((a) => a.originalUrl === article.originalUrl)) {
-      throw new Error(`Article with original URL '${article.originalUrl}' already exists.`);
+  public createArticle(articleInput: Partial<Article>): Article {
+    const now = new Date().toISOString();
+    const id = articleInput.id?.trim() || `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    const incomingTranslations = (articleInput.translations || {}) as any;
+    const languageCodes = ['en', 'ar', 'de', 'es', 'fr'] as const;
+
+    if (articleInput.originalUrl && this.articles.some((a) => a.originalUrl === articleInput.originalUrl)) {
+      throw new Error(`Article with original URL '${articleInput.originalUrl}' already exists.`);
     }
 
-    for (const [lang, translation] of Object.entries(article.translations)) {
-      const baseSlug = (translation.slug || article.id)
+    const hasAnyTitle = languageCodes.some((lang) => String(incomingTranslations?.[lang]?.title || '').trim());
+    if (!hasAnyTitle) {
+      throw new Error('At least one language edition must contain an article title.');
+    }
+
+    const translations = {} as Article['translations'];
+
+    for (const lang of languageCodes) {
+      const raw = incomingTranslations?.[lang] || {};
+      const title = String(raw.title || '').trim();
+      const requestedSlug = String(raw.slug || title || id)
         .toLowerCase()
         .trim()
-        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9\u0600-\u06ff]+/gi, '-')
         .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '') || article.id;
+        .replace(/^-|-$/g, '');
+      const baseSlug = requestedSlug || id;
 
       let candidate = baseSlug;
       let suffix = 2;
       while (
         this.articles.some((existing) => {
-          const existingTranslation = existing.translations?.[lang as keyof typeof existing.translations];
+          const existingTranslation = existing.translations?.[lang];
           return existingTranslation?.slug === candidate;
         })
       ) {
         candidate = `${baseSlug}-${suffix++}`;
       }
-      translation.slug = candidate;
+
+      translations[lang] = {
+        language: lang,
+        title,
+        slug: candidate,
+        executiveSummary: String(raw.executiveSummary || title || ''),
+        structuredBody: String(raw.structuredBody || raw.executiveSummary || ''),
+        seoTitle: String(raw.seoTitle || title || '').slice(0, 70),
+        metaDescription: String(raw.metaDescription || raw.executiveSummary || title || '').slice(0, 180),
+        keywords: Array.isArray(raw.keywords) ? raw.keywords.filter(Boolean) : [],
+        tags: Array.isArray(raw.tags) ? raw.tags.filter(Boolean) : [],
+        imageAlt: String(raw.imageAlt || title || 'World News article image'),
+        faq: Array.isArray(raw.faq) ? raw.faq : [],
+        translationStatus: raw.translationStatus || 'draft',
+        entities: Array.isArray(raw.entities) ? raw.entities : [],
+        ...(raw.corrections ? { corrections: String(raw.corrections) } : {}),
+      };
     }
+
+    const primaryTranslation = translations.en.title
+      ? translations.en
+      : Object.values(translations).find((translation) => translation.title) || translations.en;
+
+    const image = articleInput.image || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
+
+    const article: Article = {
+      id,
+      category: articleInput.category || 'world',
+      editorialType: articleInput.editorialType || 'original',
+      originalSource: articleInput.originalSource?.trim() || 'World News Desk',
+      originalUrl: articleInput.originalUrl?.trim() || `https://worldnews.org/wire/${id}`,
+      originalDescription: articleInput.originalDescription || primaryTranslation.executiveSummary || primaryTranslation.title,
+      officialImageUrl: articleInput.officialImageUrl,
+      archiveSnapshot: articleInput.archiveSnapshot,
+      image,
+      imageCredit: articleInput.imageCredit?.trim() || 'World News Photo Service',
+      imageProvenance:
+        articleInput.imageProvenance ||
+        (image.startsWith('data:image/')
+          ? 'Manual image upload through the World News CMS.'
+          : 'Image URL supplied through the World News CMS.'),
+      imageLicense: articleInput.imageLicense?.trim() || 'Editorial Press License',
+      status: articleInput.status || 'draft',
+      isBreaking: Boolean(articleInput.isBreaking),
+      isPinned: Boolean(articleInput.isPinned),
+      priority: Number.isFinite(articleInput.priority) ? Number(articleInput.priority) : 5,
+      views: Number.isFinite(articleInput.views) ? Number(articleInput.views) : 0,
+      shares: Number.isFinite(articleInput.shares) ? Number(articleInput.shares) : 0,
+      publishedAt: articleInput.publishedAt || now,
+      updatedAt: now,
+      scheduledAt: articleInput.scheduledAt,
+      byline: articleInput.byline?.trim() || 'World News Editorial Staff',
+      translations,
+      hasVideo: Boolean(articleInput.hasVideo),
+      videoUrl: articleInput.videoUrl,
+      videoIframeUrl: articleInput.videoIframeUrl,
+      videoThumbnail: articleInput.videoThumbnail,
+    };
 
     this.articles.unshift(article);
     this.queueWrite(persistence.upsertArticle(article));
