@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Calendar, Sparkles, Flame, Play, Pause } from 'lucide-react';
 import { Article, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
+import { getArticleTranslation } from '../utils/articleTranslation';
 
 interface HeroSliderProps {
   articles: Article[];
@@ -40,7 +41,7 @@ export const HeroSlider: React.FC<HeroSliderProps> = ({
   if (slides.length === 0) return null;
 
   const currentSlide = slides[currentIndex] || slides[0];
-  const trans = currentSlide.translations[currentLang] || currentSlide.translations.en;
+  const trans = getArticleTranslation(currentSlide, currentLang);
 
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
