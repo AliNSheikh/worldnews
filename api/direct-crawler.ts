@@ -779,6 +779,13 @@ export default async function handler(req: any, res: any) {
         nextRunTime: latestLog?.completedAt
           ? new Date(new Date(latestLog.completedAt).getTime() + 60 * 60 * 1000).toISOString()
           : null,
+        recentLogs: sortedLogs.slice(0, 12).map((log) => ({
+          timestamp: log.completedAt || log.startedAt,
+          message: log.source || log.jobType || 'Crawler cycle',
+          articlesAdded: Number(log.importedCount || 0),
+          status: log.status,
+          details: log.errorMessage || null,
+        })),
         lastRuns: sources
           .filter((source) => source.lastImport)
           .map((source) => ({
