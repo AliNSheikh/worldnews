@@ -284,18 +284,18 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
 
           <h3
             onClick={() => onSelect(article)}
-            className="font-bold text-xs sm:text-sm md:text-base text-slate-900 group-hover:text-sky-700 transition-colors cursor-pointer line-clamp-2 leading-snug"
+            className="font-extrabold text-[12px] sm:text-sm md:text-base text-slate-900 group-hover:text-sky-700 transition-colors cursor-pointer line-clamp-2 leading-snug"
           >
             {trans.title}
           </h3>
 
-          <p className="text-slate-600 text-[11px] sm:text-xs md:text-sm line-clamp-2 sm:line-clamp-3 leading-relaxed">
+          <p className="hidden sm:block text-slate-600 text-xs md:text-sm line-clamp-2 sm:line-clamp-3 leading-relaxed">
             {article.originalDescription || trans.executiveSummary}
           </p>
         </div>
       </div>
 
-      <div className="p-3 sm:p-4 pt-1.5 sm:pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] sm:text-xs text-slate-500">
+      <div className="hidden sm:flex p-3 sm:p-4 pt-1.5 sm:pt-2 border-t border-slate-100 items-center justify-between text-[11px] sm:text-xs text-slate-500">
         <span className="truncate max-w-[90px] sm:max-w-[140px] font-medium text-slate-700">{article.byline}</span>
         <div className="flex items-center gap-1">
           <Globe className="w-3 h-3 text-slate-400" />

@@ -65,7 +65,7 @@ function parsePayload(row: any): any | null {
 
 async function listPayloads(table: string): Promise<any[]> {
   const output: any[] = [];
-  for (let offset = 0; offset < 10000; offset += 100) {
+  for (let offset = 0; ; offset += 100) {
     const qs = new URLSearchParams();
     qs.append('queries[]', query('limit', [100]));
     qs.append('queries[]', query('offset', [offset]));

@@ -9,12 +9,7 @@ import {
   INITIAL_AUTOMATION_LOGS,
 } from './data/initialData';
 import { Header } from './components/Header';
-import { HeroSlider } from './components/HeroSlider';
-import { PromotionalHero } from './components/PromotionalHero';
-import { AdSlot } from './components/AdSlot';
 import { BreakingBar } from './components/BreakingBar';
-import { ArticleCard } from './components/ArticleCard';
-import { TrendingList } from './components/TrendingList';
 import { ArticleView } from './components/ArticleView';
 import { CategoryView } from './components/CategoryView';
 import { Footer } from './components/Footer';
@@ -25,7 +20,7 @@ import { AdminLoginGate } from './components/AdminLoginGate';
 import { updatePageSEO } from './utils/seo';
 import { analytics } from './utils/analytics';
 import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTranslation';
-import { ShieldCheck, ChevronRight, Sparkles } from 'lucide-react';
+import { NewsDiscoverHome } from './components/NewsDiscoverHome';
 
 export function App() {
   // Navigation & View States
@@ -122,6 +117,21 @@ export function App() {
     fetchSettings();
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
+
+  // Keep the active edition aligned with languages enabled in the control panel.
+  useEffect(() => {
+    const enabled = settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr'];
+    if (!enabled.includes(currentLang)) {
+      const fallback =
+        (enabled.includes(settings.defaultLanguage) && settings.defaultLanguage) ||
+        enabled[0] ||
+        'en';
+      setCurrentLang(fallback as LanguageCode);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin')) {
+        window.history.replaceState({}, '', `/${fallback}`);
+      }
+    }
+  }, [settings.enabledLanguages, settings.defaultLanguage, currentLang]);
 
   // Initialize Google Analytics when measurement ID is configured
   useEffect(() => {
@@ -403,133 +413,14 @@ export function App() {
           />
         ) : (
           /* FRONT PAGE (HOMEPAGE) */
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-12">
-            {/* Manual promotional Hero Slider; latest stories are the automatic fallback. */}
-            <section id="hero-slider-section">
-              {promotionalHeroSlides.length > 0 ? (
-                <PromotionalHero slides={promotionalHeroSlides} currentLang={currentLang} />
-              ) : heroArticles.length > 0 ? (
-                <HeroSlider
-                  articles={heroArticles}
-                  currentLang={currentLang}
-                  onSelectArticle={handleSelectArticle}
-                  onSelectCategory={handleSelectCategory}
-                />
-              ) : null}
-            </section>
-
-            <AdSlot placement="homepage-after-hero" />
-
-            {/* Lead Grid Section */}
-            <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Primary Lead Story & Secondary leads */}
-              <div className="lg:col-span-8 space-y-8">
-                {leadArticles.primary && (
-                  <ArticleCard
-                    article={leadArticles.primary}
-                    currentLang={currentLang}
-                    variant="lead"
-                    onSelect={handleSelectArticle}
-                    onSelectCategory={handleSelectCategory}
-                  />
-                )}
-
-                {/* Secondary Stories Row */}
-                <div className="grid grid-cols-2 gap-3.5 sm:gap-6">
-                  {leadArticles.secondary1 && (
-                    <ArticleCard
-                      article={leadArticles.secondary1}
-                      currentLang={currentLang}
-                      variant="secondary"
-                      onSelect={handleSelectArticle}
-                      onSelectCategory={handleSelectCategory}
-                    />
-                  )}
-                  {leadArticles.secondary2 && (
-                    <ArticleCard
-                      article={leadArticles.secondary2}
-                      currentLang={currentLang}
-                      variant="secondary"
-                      onSelect={handleSelectArticle}
-                      onSelectCategory={handleSelectCategory}
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Sidebar: Trending & Editorial Standards */}
-              <aside className="lg:col-span-4 space-y-6">
-                <TrendingList
-                  articles={publishedArticles}
-                  currentLang={currentLang}
-                  onSelect={handleSelectArticle}
-                />
-
-                {/* Editorial Charter callout banner */}
-                <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                    <h3 className="font-bold text-sm tracking-tight">
-                      {t.editorialGuidelines}
-                    </h3>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Transparent source standards. Learn how News Discover handles source-derived imports, original media metadata, verification, and editorial updates.
-                  </p>
-                  <button
-                    onClick={() => setIsCharterOpen(true)}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors cursor-pointer"
-                  >
-                    <span>{t.readEditorialCharter}</span>
-                    <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                  </button>
-                </div>
-              </aside>
-            </section>
-
-            <AdSlot placement="homepage-mid-feed" />
-
-            {/* In-depth Category Showcases */}
-            {categories
-              .filter((c) => c.isVisible && ['world', 'economy', 'technology', 'climate'].includes(c.slug))
-              .map((cat) => {
-                const catArticles = publishedArticles.filter((a) => a.category === cat.slug);
-                if (catArticles.length === 0) return null;
-
-                return (
-                  <section key={cat.id} className="pt-8 border-t border-slate-200">
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 bg-sky-700 rounded-sm"></span>
-                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight uppercase">
-                          {cat.names[currentLang] || cat.slug}
-                        </h2>
-                      </div>
-                      <button
-                        onClick={() => handleSelectCategory(cat.slug)}
-                        className="text-xs font-bold text-sky-700 hover:text-sky-900 flex items-center gap-1 cursor-pointer"
-                      >
-                        <span>{t.seeAll}</span>
-                        <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5 lg:gap-6">
-                      {catArticles.slice(0, 3).map((art) => (
-                        <ArticleCard
-                          key={art.id}
-                          article={art}
-                          currentLang={currentLang}
-                          variant="standard"
-                          onSelect={handleSelectArticle}
-                          onSelectCategory={handleSelectCategory}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-          </div>
+          <NewsDiscoverHome
+            articles={publishedArticles}
+            categories={categories}
+            currentLang={currentLang}
+            promotionalSlides={promotionalHeroSlides}
+            onSelectArticle={handleSelectArticle}
+            onSelectCategory={handleSelectCategory}
+          />
         )}
       </main>
 

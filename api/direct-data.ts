@@ -172,7 +172,7 @@ function paginationQuery(method: 'limit' | 'offset', value: number): string {
 
 async function listPayloads(table: string): Promise<any[]> {
   const out: any[] = [];
-  for (let offset = 0; offset < 10000; offset += 100) {
+  for (let offset = 0; ; offset += 100) {
     const qs = new URLSearchParams();
     qs.append('queries[]', paginationQuery('limit', 100));
     qs.append('queries[]', paginationQuery('offset', offset));

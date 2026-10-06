@@ -124,33 +124,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage(null);
+    setCrawlerActionMessage('Starting full feed drain...');
+    let total = 0;
+    let cycles = 0;
+    let hasMore = true;
     try {
-      const res = await fetch('/api/crawler/run-now', { method: 'POST' });
-      const raw = await res.text();
-      let data: any = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch {
-        data = { error: raw || `HTTP ${res.status}` };
-      }
-      if (res.ok && data.success) {
+      while (hasMore) {
+        cycles += 1;
+        const res = await fetch('/api/crawler/run-now?batch=4', { method: 'POST' });
+        const raw = await res.text();
+        let data: any = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          data = { error: raw || `HTTP ${res.status}` };
+        }
+        if (!res.ok) {
+          throw new Error(data.message || data.error || `Crawler failed with HTTP ${res.status}.`);
+        }
+        total += Number(data.newArticlesCount || data.count || 0);
+        hasMore = Boolean(data.hasMore);
         setCrawlerActionMessage(
-          data.message ||
-            `Crawl cycle completed: persisted ${data.newArticlesCount || data.count || 0} source-derived article(s).`
+          `Batch ${cycles}: persisted ${data.count || 0} article(s). Total this manual run: ${total}.${hasMore ? ' Continuing automatically…' : ' Feed drain complete.'}`
         );
-        onRefreshArticles();
-        onRefreshSources();
-        onRefreshLogs();
-        fetchCrawlerStatus();
-      } else {
-        setCrawlerActionMessage(
-          data.message || data.error || `Crawler failed with HTTP ${res.status}.`
-        );
+        if (hasMore) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
       }
+
+      onRefreshArticles();
+      onRefreshSources();
+      onRefreshLogs();
+      fetchCrawlerStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setCrawlerActionMessage(`Crawl error: ${msg}`);
+      setCrawlerActionMessage(`Crawl error after ${cycles} batch(es), ${total} persisted: ${msg}`);
     } finally {
       setIsCrawlerRunning(false);
     }
@@ -825,7 +833,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    The background crawler checks active RSS/Atom sources every hour, fetches newly published stories and their original source images, derives SEO metadata from the source headline/description/content, and persists the result directly to Appwrite. Gemini is not required.
+                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, SEO metadata, and translations for enabled site languages.
                   </p>
                 </div>
 
@@ -865,7 +873,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="text-xl font-black text-slate-900">Every 60 Mins</div>
                 <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
                   <Check className="w-3 h-3" />
-                  <span>Daemon running 24/7</span>
+                  <span>Appwrite scheduled function active</span>
                 </div>
               </div>
 
@@ -877,7 +885,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="text-xl font-black text-slate-900">
                   {crawlerStatus?.totalArticlesIngested ?? 0} Stories
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1">Autonomous wire additions</div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Latest fetch: {crawlerStatus?.lastImportedCount ?? 0} article(s)
+                </div>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
@@ -896,7 +906,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
                   {crawlerStatus?.lastRunTime
-                    ? new Date(crawlerStatus.lastRunTime).toLocaleDateString()
+                    ? `${new Date(crawlerStatus.lastRunTime).toLocaleDateString()} · ${crawlerStatus?.lastImportedCount ?? 0} imported · ${crawlerStatus?.lastRunStatus || 'completed'}`
                     : 'Awaiting scheduled interval'}
                 </div>
               </div>
@@ -934,63 +944,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="divide-y divide-slate-100 text-xs">
-                {[
-                  {
-                    name: 'Reuters Global News Wire',
-                    url: 'https://www.reuters.com/world/rss',
-                    category: 'World & Diplomacy',
-                    status: 'Active Scan',
-                    interval: 'Hourly',
-                  },
-                  {
-                    name: 'Associated Press Breaking News',
-                    url: 'https://apnews.com/rss/world',
-                    category: 'Politics & Breaking',
-                    status: 'Active Scan',
-                    interval: 'Hourly',
-                  },
-                  {
-                    name: 'BBC News International Feed',
-                    url: 'https://feeds.bbci.co.uk/news/world/rss.xml',
-                    category: 'Global Affairs',
-                    status: 'Active Scan',
-                    interval: 'Hourly',
-                  },
-                  {
-                    name: 'Bloomberg Markets & Tech Dispatches',
-                    url: 'https://www.bloomberg.com/feeds/news.xml',
-                    category: 'Economy & Tech',
-                    status: 'Active Scan',
-                    interval: 'Hourly',
-                  },
-                  {
-                    name: 'Al Jazeera International Service',
-                    url: 'https://www.aljazeera.com/xml/rss/all.xml',
-                    category: 'Middle East & Global',
-                    status: 'Active Scan',
-                    interval: 'Hourly',
-                  },
-                ].map((feed, idx) => (
-                  <div key={idx} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
+                {sources.map((feed, idx) => (
+                  <div key={feed.id || idx} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-900">{feed.name}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200">
-                          {feed.status}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                          feed.isActive
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                          {feed.isActive ? 'Active Scan' : 'Paused'}
                         </span>
                       </div>
-                      <span className="text-slate-400 font-mono text-[11px] block">{feed.url}</span>
+                      <span className="text-slate-400 font-mono text-[11px] block">{feed.rssUrl}</span>
                     </div>
 
                     <div className="flex items-center gap-3 text-slate-500 self-start sm:self-center">
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-medium">
                         {feed.category}
                       </span>
-                      <span className="font-mono text-[11px] text-slate-400">{feed.interval}</span>
+                      <span className="font-mono text-[11px] text-slate-400">
+                        {feed.lastImport ? new Date(feed.lastImport).toLocaleString() : 'Not fetched yet'}
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
+                ))}             </div>
             </div>
 
             {/* Live Crawler Activity Log */}

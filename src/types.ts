@@ -135,6 +135,7 @@ export interface SiteSettings {
   descriptions: Record<LanguageCode, string>;
   logoText: string;
   defaultLanguage: LanguageCode;
+  enabledLanguages?: LanguageCode[];
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
