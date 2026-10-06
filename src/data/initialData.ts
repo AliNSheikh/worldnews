@@ -1451,11 +1451,11 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
     fr: 'News Discover',
   },
   descriptions: {
-    en: 'Credible 24/7 international digital newsroom and multilingual editorial platform.',
-    ar: 'غرفة أخبار دولية موثوقة على مدار الساعة ومنصة تحريرية متعددة اللغات.',
-    de: 'Verlässlicher 24/7 digitaler internationaler Newsroom und mehrsprachige Redaktionsplattform.',
-    es: 'Redacción digital internacional 24/7 y plataforma editorial multilingüe de alta credibilidad.',
-    fr: 'Rédaction numérique internationale crédible 24/7 et plateforme éditoriale multilingue.',
+    en: 'Source-driven international news discovery with hourly updates and searchable coverage.',
+    ar: 'منصة لاكتشاف الأخبار الدولية المستندة إلى المصادر مع تحديثات دورية وبحث سريع.',
+    de: 'Quellenbasierte internationale Nachrichten mit regelmäßigen Updates und Suche.',
+    es: 'Noticias internacionales basadas en fuentes con actualizaciones periódicas y búsqueda.',
+    fr: 'Actualités internationales fondées sur les sources avec mises à jour régulières et recherche.',
   },
   logoText: 'NEWS DISCOVER',
   defaultLanguage: 'en',
@@ -1464,16 +1464,16 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
   accentColor: '#0284C7',
   breakingColor: '#DC2626',
   contactInfo: {
-    email: 'newsroom@worldnews.int',
-    phone: '+41 22 917 1234',
-    address: 'World News Global Press Bureau, Palais des Nations Quai 8, 1211 Geneva, Switzerland',
+    email: '',
+    phone: '',
+    address: '',
   },
   socialLinks: {
-    twitter: 'https://x.com/WorldNewsInt',
-    facebook: 'https://facebook.com/WorldNewsInt',
-    linkedin: 'https://linkedin.com/company/worldnews-editorial',
-    telegram: 'https://t.me/WorldNewsGlobalWire',
-    whatsapp: 'https://whatsapp.com/channel/worldnews',
+    twitter: '',
+    facebook: '',
+    linkedin: '',
+    telegram: '',
+    whatsapp: '',
   },
   footerText: {
     en: 'News Discover brings source-driven international news, original publisher metadata, and fast searchable coverage to readers worldwide.',
@@ -1483,6 +1483,8 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
     fr: 'News Discover propose des actualités internationales et une couverture fondée sur les sources.',
   },
   commentModeration: 'strict_approval',
+  autoIngestEnabled: true,
+  aiAssistanceEnabled: false,
   editorialStatement: {
     en: 'News Discover publishes source-derived news content and metadata without AI regeneration in the automated ingestion path. Source URLs and provenance are retained for verification, and publisher licensing terms remain applicable to source media.'
     ar: 'تعتمد نيوز ديسكفر في الاستيراد الآلي على المحتوى والبيانات الوصفية المستمدة من المصدر من دون إعادة صياغة بالذكاء الاصطناعي، مع الاحتفاظ ببيانات المصدر لأغراض التحقق.'
