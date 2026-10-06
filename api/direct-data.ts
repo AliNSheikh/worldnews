@@ -16,6 +16,79 @@ const TABLES: Record<string, string> = {
   settings: 'newsroom_settings',
 };
 
+const DEFAULT_SETTINGS = {
+  names: {
+    en: 'News Discover',
+    ar: 'نيوز ديسكفر',
+    de: 'News Discover',
+    es: 'News Discover',
+    fr: 'News Discover',
+  },
+  descriptions: {
+    en: 'Source-driven international news discovery with hourly updates and searchable coverage.',
+    ar: 'منصة لاكتشاف الأخبار الدولية المستندة إلى المصادر مع تحديثات دورية وبحث سريع.',
+    de: 'Quellenbasierte internationale Nachrichten mit regelmäßigen Updates und Suche.',
+    es: 'Noticias internacionales basadas en fuentes con actualizaciones periódicas y búsqueda.',
+    fr: 'Actualités internationales fondées sur les sources avec mises à jour régulières et recherche.',
+  },
+  logoText: 'NEWS DISCOVER',
+  defaultLanguage: 'en',
+  primaryColor: '#0F172A',
+  secondaryColor: '#475569',
+  accentColor: '#0284C7',
+  breakingColor: '#DC2626',
+  contactInfo: { email: '', phone: '', address: '' },
+  socialLinks: { twitter: '', facebook: '', linkedin: '', telegram: '', whatsapp: '' },
+  footerText: {
+    en: 'News Discover brings source-driven international news and fast searchable coverage.',
+    ar: 'تقدم نيوز ديسكفر أخباراً دولية مستندة إلى المصادر وتغطية سريعة قابلة للبحث.',
+    de: 'News Discover bietet quellenbasierte internationale Nachrichten.',
+    es: 'News Discover ofrece noticias internacionales basadas en fuentes.',
+    fr: 'News Discover propose des actualités internationales fondées sur les sources.',
+  },
+  commentModeration: 'strict_approval',
+  autoIngestEnabled: true,
+  aiAssistanceEnabled: false,
+  editorialStatement: {
+    en: 'Automated ingestion uses source-derived content and metadata without AI regeneration.',
+    ar: 'يعتمد الاستيراد الآلي على المحتوى والبيانات الوصفية المستمدة من المصدر من دون إعادة صياغة بالذكاء الاصطناعي.',
+    de: 'Der automatische Import nutzt quellenbasierte Inhalte ohne KI-Neuschreibung.',
+    es: 'La ingesta automática utiliza contenido de la fuente sin reescritura por IA.',
+    fr: 'L’ingestion automatique utilise le contenu de la source sans réécriture par IA.',
+  },
+  siteUrl: '',
+  googleSearchConsoleVerification: '',
+  googleAnalyticsMeasurementId: '',
+  heroSlides: [],
+};
+
+function normalizeSettings(input: any = {}) {
+  const merged: any = {
+    ...DEFAULT_SETTINGS,
+    ...input,
+    names: { ...DEFAULT_SETTINGS.names, ...(input?.names || {}) },
+    descriptions: { ...DEFAULT_SETTINGS.descriptions, ...(input?.descriptions || {}) },
+    contactInfo: { ...DEFAULT_SETTINGS.contactInfo, ...(input?.contactInfo || {}) },
+    socialLinks: { ...DEFAULT_SETTINGS.socialLinks, ...(input?.socialLinks || {}) },
+    footerText: { ...DEFAULT_SETTINGS.footerText, ...(input?.footerText || {}) },
+    editorialStatement: {
+      ...DEFAULT_SETTINGS.editorialStatement,
+      ...(input?.editorialStatement || {}),
+    },
+  };
+
+  const legacyName = String(merged.names?.en || '').trim().toLowerCase();
+  if (legacyName === 'world news') {
+    merged.names = { ...DEFAULT_SETTINGS.names };
+  }
+  if (String(merged.logoText || '').trim().toUpperCase() === 'WORLD NEWS') {
+    merged.logoText = 'NEWS DISCOVER';
+  }
+  merged.aiAssistanceEnabled = false;
+  merged.autoIngestEnabled = merged.autoIngestEnabled !== false;
+  return merged;
+}
+
 function json(res: any, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -167,6 +240,7 @@ function normalizeArticle(input: Record<string, any>): any {
     originalSource: input.originalSource || 'World News Desk',
     originalUrl: input.originalUrl || `https://worldnews.org/wire/${id}`,
     originalDescription: input.originalDescription || primary.executiveSummary || primary.title,
+    sourceLanguage: input.sourceLanguage || 'en',
     officialImageUrl: input.officialImageUrl,
     archiveSnapshot: input.archiveSnapshot,
     image: input.image || '',
@@ -214,7 +288,7 @@ export default async function handler(req: any, res: any) {
         values.sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
       }
       if (resource === 'categories') values.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
-      if (resource === 'settings') return json(res, 200, values[0] || {});
+      if (resource === 'settings') return json(res, 200, normalizeSettings(values[0] || {}));
       if (id) {
         const found = values.find((v) => v.id === id || (resource === 'articles' && Object.values(v.translations || {}).some((t: any) => t?.slug === id)));
         return json(res, found ? 200 : 404, found || { error: 'Record not found.' });
@@ -244,6 +318,8 @@ export default async function handler(req: any, res: any) {
           fetchIntervalMinutes: Math.max(5, Number(input.fetchIntervalMinutes || 60)),
           articlesCount: Number(input.articlesCount || 0),
         };
+      } else if (resource === 'settings') {
+        value = normalizeSettings(input);
       } else {
         value = { ...input, id: input.id || `${resource}-${Date.now()}` };
       }
@@ -256,8 +332,12 @@ export default async function handler(req: any, res: any) {
       const input = await body(req);
       let current: any = {};
       if (resource !== 'settings') current = (await listPayloads(table)).find((v) => v.id === id) || {};
-      else current = (await listPayloads(table))[0] || {};
-      const value = resource === 'articles' ? { ...current, ...input, id: current.id || id, updatedAt: new Date().toISOString() } : { ...current, ...input, ...(id ? { id } : {}) };
+      else current = normalizeSettings((await listPayloads(table))[0] || {});
+      const value = resource === 'articles'
+        ? { ...current, ...input, id: current.id || id, updatedAt: new Date().toISOString() }
+        : resource === 'settings'
+        ? normalizeSettings({ ...current, ...input })
+        : { ...current, ...input, ...(id ? { id } : {}) };
       await upsert(table, resource === 'settings' ? 'default' : String(id), value);
       return json(res, 200, value);
     }
