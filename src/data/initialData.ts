@@ -1459,6 +1459,7 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
   },
   logoText: 'NEWS DISCOVER',
   defaultLanguage: 'en',
+  enabledLanguages: ['en', 'ar', 'de', 'es', 'fr'],
   primaryColor: '#0F172A',
   secondaryColor: '#475569',
   accentColor: '#0284C7',
