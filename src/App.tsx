@@ -24,6 +24,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginGate } from './components/AdminLoginGate';
 import { updatePageSEO } from './utils/seo';
 import { analytics } from './utils/analytics';
+import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTranslation';
 import { ShieldCheck, ChevronRight, Sparkles } from 'lucide-react';
 
 export function App() {
@@ -210,7 +211,7 @@ export function App() {
     analytics.trackLanguageChange(from, lang);
 
     if (activeArticle) {
-      const trans = activeArticle.translations[lang] || activeArticle.translations.en;
+      const trans = getArticleTranslation(activeArticle, lang);
       window.history.pushState({}, '', `/${lang}/news/${activeArticle.category}/${trans.slug}`);
     } else if (selectedCategory !== 'all') {
       window.history.pushState({}, '', `/${lang}/category/${selectedCategory}`);
@@ -223,7 +224,7 @@ export function App() {
     setActiveArticle(article);
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    const trans = article.translations[currentLang] || article.translations.en;
+    const trans = getArticleTranslation(article, currentLang);
     window.history.pushState({}, '', `/${currentLang}/news/${article.category}/${trans.slug}`);
   };
 
