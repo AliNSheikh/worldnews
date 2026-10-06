@@ -94,7 +94,7 @@ export const Footer: React.FC<FooterProps> = ({
               {newsletterSubscribed ? (
                 <div className="p-2.5 bg-emerald-950/80 border border-emerald-600/50 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Subscribed to World News Daily Executive Wire.</span>
+                  <span>Subscribed to News Discover updates.</span>
                 </div>
               ) : (
                 <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
@@ -265,7 +265,7 @@ export const Footer: React.FC<FooterProps> = ({
         {/* Bottom copyright row */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} {siteSettings.names[currentLang] || 'World News'}. All rights reserved.
+            © {new Date().getFullYear()} {siteSettings.names[currentLang] || 'News Discover'}. All rights reserved.
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-emerald-400">

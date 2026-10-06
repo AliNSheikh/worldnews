@@ -127,15 +127,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setCrawlerActionMessage(null);
     try {
       const res = await fetch('/api/crawler/run-now', { method: 'POST' });
-      const data = await res.json();
+      const raw = await res.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { error: raw || `HTTP ${res.status}` };
+      }
       if (res.ok && data.success) {
-        setCrawlerActionMessage(`Crawl cycle completed: Ingested ${data.newArticlesCount} new un-scraped articles.`);
+        setCrawlerActionMessage(
+          data.message ||
+            `Crawl cycle completed: persisted ${data.newArticlesCount || data.count || 0} source-derived article(s).`
+        );
         onRefreshArticles();
         onRefreshSources();
         onRefreshLogs();
         fetchCrawlerStatus();
       } else {
-        setCrawlerActionMessage(data.message || 'Crawl cycle completed.');
+        setCrawlerActionMessage(
+          data.message || data.error || `Crawler failed with HTTP ${res.status}.`
+        );
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -237,9 +248,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const match =
-        Object.values(art.translations).some((t) => t.title.toLowerCase().includes(q)) ||
+        Object.values(art.translations).some(
+          (t) =>
+            t.title.toLowerCase().includes(q) ||
+            t.executiveSummary.toLowerCase().includes(q) ||
+            t.structuredBody.toLowerCase().includes(q) ||
+            t.metaDescription.toLowerCase().includes(q) ||
+            (t.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
+        ) ||
         art.byline.toLowerCase().includes(q) ||
-        art.originalSource.toLowerCase().includes(q);
+        art.originalSource.toLowerCase().includes(q) ||
+        art.originalUrl.toLowerCase().includes(q);
       if (!match) return false;
     }
     return true;
@@ -305,8 +324,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         body: JSON.stringify({
           prompt: aiPrompt.trim(),
           category: aiCategory,
-          sourceName: 'World News International Wire Service',
-          sourceUrl: `https://worldnews.org/wire/${Date.now()}`,
+          sourceName: 'News Discover Source Desk',
+          sourceUrl: `https://newsdiscover.example/wire/${Date.now()}`,
         }),
       });
 
@@ -411,18 +430,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('ai-draft')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'ai-draft'
-                ? 'border-sky-500 text-sky-400'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-sky-400" />
-            <span>AI Drafting Studio (Gemini 3.8-Flash)</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('crawler')}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
               activeTab === 'crawler'
@@ -480,69 +487,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* TAB 1: ARTICLES LIST */}
         {activeTab === 'articles' && (
           <div className="space-y-6">
-            {/* Format Regeneration Card */}
-            <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 border border-sky-800/40 rounded-2xl p-5 text-white shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-sky-400" />
-                    <h3 className="font-bold text-sm sm:text-base text-white">
-                      Publication Format Regeneration Engine
-                    </h3>
-                    <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-semibold uppercase tracking-wider border border-sky-400/30">
-                      Preserves Original Concept
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-                    Regenerate the entire publication’s dispatches into an alternative journalistic architecture while strictly preserving original factual records, cited sources, and entity graphs across all 5 languages.
+            <div className="bg-slate-900 border border-sky-800/40 rounded-2xl p-5 text-white shadow-sm">
+              <div className="flex items-start gap-3">
+                <Rss className="w-5 h-5 text-sky-400 mt-0.5" />
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-white">Source-direct publishing mode</h3>
+                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                    Automated imports no longer depend on Gemini. News Discover stores source-derived headline, article text, original image metadata, publication date, and automatically generated SEO title/description in Appwrite. Use the search box below to find any article, then edit or delete it directly.
                   </p>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2 sm:self-center">
-                  <select
-                    value={selectedRegenFormat}
-                    onChange={(e) =>
-                      setSelectedRegenFormat(
-                        e.target.value as
-                          | 'executive-brief'
-                          | 'investigative'
-                          | 'explainer-qa'
-                          | 'deep-analysis'
-                      )
-                    }
-                    className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-white focus:outline-hidden focus:border-sky-400 cursor-pointer"
-                  >
-                    <option value="executive-brief">Executive Intelligence Brief</option>
-                    <option value="investigative">Investigative In-Depth Feature</option>
-                    <option value="explainer-qa">Explainer & Q&A Dispatch</option>
-                    <option value="deep-analysis">Geopolitical Strategic Analysis</option>
-                  </select>
-
-                  <button
-                    onClick={handleRegenerateAll}
-                    disabled={isRegeneratingAll}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingAll ? 'animate-spin' : ''}`} />
-                    <span>{isRegeneratingAll ? 'Regenerating...' : 'Regenerate All Articles'}</span>
-                  </button>
-                </div>
               </div>
-
-              {regenProgressMessage && (
-                <div className="p-3 bg-sky-900/60 border border-sky-700/60 rounded-xl text-xs text-sky-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{regenProgressMessage}</span>
-                  </div>
-                  <button
-                    onClick={() => setRegenProgressMessage(null)}
-                    className="text-slate-400 hover:text-white text-xs cursor-pointer"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Filter toolbar */}
@@ -553,7 +507,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter articles by title or byline..."
+                  placeholder="Search title, body, SEO description, keywords, source or URL..."
                   className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-hidden focus:border-sky-500"
                 />
               </div>
@@ -851,132 +805,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 2: AI DRAFTING STUDIO */}
-        {activeTab === 'ai-draft' && (
-          <div className="space-y-6">
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-sky-600" />
-                <h3 className="font-bold text-lg text-slate-900">
-                  Gemini 3.8-Flash Multilingual Editorial Studio
-                </h3>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                Enter an international wire headline, developing event, or press dispatch. The server-side Gemini 3.8-Flash pipeline generates a comprehensive structured report with executive summaries, headings, FAQs, keywords, and journalistic translations in Arabic, English, German, Spanish, and French.
-              </p>
-
-              <form onSubmit={handleGenerateAiReport} className="space-y-4 pt-2">
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Wire Lead or Topic Prompt *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder="e.g., Global Renewable Energy Council Ratifies Cross-Border Supergrid Standard at Geneva Summit"
-                      className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Category
-                    </label>
-                    <select
-                      value={aiCategory}
-                      onChange={(e) => setAiCategory(e.target.value)}
-                      className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl"
-                    >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.slug}>
-                          {c.names.en}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-xs text-slate-500">
-                    Model: <strong className="font-mono text-slate-800">gemini-3.8-flash</strong> (Strict JSON Schema)
-                  </span>
-
-                  <button
-                    type="submit"
-                    disabled={aiGenerating || !aiPrompt.trim()}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-sky-700 hover:bg-sky-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Sparkles className={`w-4 h-4 ${aiGenerating ? 'animate-spin' : ''}`} />
-                    <span>{aiGenerating ? 'Synthesizing Multilingual Wire...' : 'Generate 5-Language Dispatch'}</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {aiStatusMessage && (
-              <div className="p-3 bg-sky-50 border border-sky-200 text-sky-900 rounded-xl text-xs flex items-center justify-between">
-                <span>{aiStatusMessage}</span>
-                {aiDraftResult && (
-                  <button
-                    onClick={publishAiDraft}
-                    className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs cursor-pointer"
-                  >
-                    Publish to Live Site Now
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Generated Preview */}
-            {aiDraftResult && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-                  <div>
-                    <span className="text-[10px] font-bold text-sky-700 uppercase tracking-wider block">
-                      Generated Dispatch Preview
-                    </span>
-                    <h3 className="font-bold text-base text-slate-900">
-                      {aiDraftResult.translations.en?.title}
-                    </h3>
-                  </div>
-
-                  <button
-                    onClick={publishAiDraft}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
-                  >
-                    Publish Report Directly
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* English Version */}
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                    <span className="text-xs font-bold text-slate-900 uppercase">English Edition</span>
-                    <h4 className="font-bold text-sm text-slate-900">{aiDraftResult.translations.en?.title}</h4>
-                    <p className="text-xs text-slate-600 italic">{aiDraftResult.translations.en?.executiveSummary}</p>
-                    <div className="text-xs text-slate-700 font-mono bg-white p-2 rounded border border-slate-200 max-h-36 overflow-y-auto">
-                      {aiDraftResult.translations.en?.structuredBody}
-                    </div>
-                  </div>
-
-                  {/* Arabic Version (RTL) */}
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2" dir="rtl">
-                    <span className="text-xs font-bold text-slate-900 uppercase">النسخة العربية (Arabic Edition)</span>
-                    <h4 className="font-bold text-sm text-slate-900">{aiDraftResult.translations.ar?.title}</h4>
-                    <p className="text-xs text-slate-600 italic">{aiDraftResult.translations.ar?.executiveSummary}</p>
-                    <div className="text-xs text-slate-700 bg-white p-2 rounded border border-slate-200 max-h-36 overflow-y-auto">
-                      {aiDraftResult.translations.ar?.structuredBody}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* TAB 2.5: AUTOMATED HOURLY CRAWLER & RETRIEVAL ENGINE */}
         {activeTab === 'crawler' && (
           <div className="space-y-6">
@@ -993,11 +821,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       Automated Real-Time Article Retrieval Engine
                     </h3>
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold uppercase tracking-wider">
-                      Hourly AI Crawler Active
+                      Hourly Source Crawler Active
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    The automated background crawler visits target wire dispatches hourly to detect and ingest newly published, previously un-scraped news stories. Each detected article is autonomously processed by Gemini 3.8-Flash into verified 5-language editions (English, Arabic, German, Spanish, French) and published to the live platform.
+                    The background crawler checks active RSS/Atom sources every hour, fetches newly published stories and their original source images, derives SEO metadata from the source headline/description/content, and persists the result directly to Appwrite. Gemini is not required.
                   </p>
                 </div>
 

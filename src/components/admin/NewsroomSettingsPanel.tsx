@@ -35,7 +35,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
 }) => {
   const [commentMod, setCommentMod] = useState(settings.commentModeration);
   const [autoIngest, setAutoIngest] = useState(settings.autoIngestEnabled);
-  const [aiAssistance, setAiAssistance] = useState(settings.aiAssistanceEnabled);
 
   // Contact Info State
   const [deskEmail, setDeskEmail] = useState(settings.contactInfo.email || '');
@@ -44,15 +43,14 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
   const [telegram, setTelegram] = useState(settings.socialLinks?.telegram || '');
   const [whatsapp, setWhatsapp] = useState(settings.socialLinks?.whatsapp || '');
 
-  // Google Search Console & Google Analytics
+  // Canonical domain, Google Search Console & Google Analytics
+  const [siteUrl, setSiteUrl] = useState(settings.siteUrl || '');
   const [gscToken, setGscToken] = useState(settings.googleSearchConsoleVerification || '');
   const [gaId, setGaId] = useState(settings.googleAnalyticsMeasurementId || '');
 
   // UI State
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [optimizingAll, setOptimizingAll] = useState(false);
-  const [optimizeResult, setOptimizeResult] = useState<string | null>(null);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +59,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
       await onUpdateSettings({
         commentModeration: commentMod,
         autoIngestEnabled: autoIngest,
-        aiAssistanceEnabled: aiAssistance,
+        aiAssistanceEnabled: false,
         contactInfo: {
           ...settings.contactInfo,
           email: deskEmail.trim(),
@@ -73,6 +71,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           telegram: telegram.trim(),
           whatsapp: whatsapp.trim(),
         },
+        siteUrl: siteUrl.trim().replace(/\/$/, ''),
         googleSearchConsoleVerification: gscToken.trim(),
         googleAnalyticsMeasurementId: gaId.trim(),
       });
@@ -80,33 +79,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
       setTimeout(() => setSavedSuccess(false), 2500);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleOptimizeAllArticlesSEO = async () => {
-    try {
-      setOptimizingAll(true);
-      setOptimizeResult(null);
-
-      const res = await fetch('/api/articles/optimize-all-seo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to optimize articles.');
-      }
-
-      setOptimizeResult(
-        data.message || `Successfully rewrote and optimized ${data.optimizedCount} articles for Google Search & News.`
-      );
-      onRefreshLogs();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setOptimizeResult(`Error optimizing articles: ${msg}`);
-    } finally {
-      setOptimizingAll(false);
     }
   };
 
@@ -140,10 +112,26 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
             </h4>
           </div>
           <p className="text-xs text-sky-900 leading-relaxed">
-            Verify site ownership with Google Search Console for automated indexing in Google Search and Google News, and track real-time reader engagement via Google Analytics.
+            Configure the canonical News Discover domain, Search Console verification token, and GA4 measurement ID. The site exposes live Appwrite-backed sitemap, news sitemap, robots.txt, and RSS endpoints for compliant crawling.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white p-3.5 border border-sky-200 rounded-lg space-y-1.5 md:col-span-2">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                <span>Canonical Site URL / Google Search Console Property</span>
+              </label>
+              <input
+                type="url"
+                value={siteUrl}
+                onChange={(e) => setSiteUrl(e.target.value)}
+                placeholder="https://your-news-discover-domain.com"
+                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-sky-500"
+              />
+              <p className="text-[11px] text-slate-500">
+                Used by the dynamic sitemap, robots.txt, RSS feed, canonical URLs, and Search Console property setup.
+              </p>
+            </div>
             <div className="bg-white p-3.5 border border-sky-200 rounded-lg space-y-1.5">
               <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
                 <Search className="w-3.5 h-3.5 text-sky-600" />
@@ -230,7 +218,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
                 type="text"
                 value={telegram}
                 onChange={(e) => setTelegram(e.target.value)}
-                placeholder="https://t.me/worldnewswire or @worldnewswire"
+                placeholder="https://t.me/newsdiscover or @newsdiscover"
                 className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
               />
             </div>
@@ -329,18 +317,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
                 />
               </label>
 
-              <label className="flex items-center justify-between cursor-pointer text-xs pt-2 border-t border-slate-200">
-                <div>
-                  <span className="font-bold text-slate-800 block">Gemini 3.8-Flash Editorial Assistant</span>
-                  <span className="text-[11px] text-slate-500">Enable multilingual generation and summaries</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={aiAssistance}
-                  onChange={(e) => setAiAssistance(e.target.checked)}
-                  className="rounded text-sky-600 focus:ring-sky-500"
-                />
-              </label>
             </div>
           </div>
         </div>
@@ -348,38 +324,15 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
 
       <HeroSliderManager settings={settings} onUpdateSettings={onUpdateSettings} />
 
-      {/* AI Full-Site SEO & Search Indexing Rewrite Section */}
-      <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-indigo-950 text-white rounded-2xl p-6 shadow-md border border-sky-800/40 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              <h3 className="font-bold text-base">
-                AI Search Engine Optimization & Google News Indexing Rewriter
-              </h3>
-            </div>
-            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              Rewrite all published and draft articles using Gemini to optimize them for Google Search, Google News, keyword density, meta titles, meta descriptions, and structured subheadings. Keeps articles of medium length with natural human voice and enforces clean standard bold formatting (strictly removing markdown asterisks).
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleOptimizeAllArticlesSEO}
-            disabled={optimizingAll}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer shrink-0"
-          >
-            <RefreshCw className={`w-4 h-4 ${optimizingAll ? 'animate-spin' : ''}`} />
-            <span>{optimizingAll ? 'Rewriting & Optimizing All Articles...' : 'Rewrite All Articles with AI'}</span>
-          </button>
+      {/* Source-derived SEO metadata */}
+      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md border border-sky-800/40 space-y-2">
+        <div className="flex items-center gap-2">
+          <Search className="w-5 h-5 text-sky-400" />
+          <h3 className="font-bold text-base">Automatic source-derived SEO metadata</h3>
         </div>
-
-        {optimizeResult && (
-          <div className="p-3.5 bg-white/10 border border-white/20 rounded-xl text-xs flex items-start gap-2.5">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <p className="text-slate-100 leading-relaxed">{optimizeResult}</p>
-          </div>
-        )}
+        <p className="text-xs text-slate-300 leading-relaxed">
+          Gemini is no longer required for automated ingestion. Every fetched article receives a clean meta title, meta description, slug, keywords, original image metadata, publication date, and sitemap entry derived from the source headline, description, and article text.
+        </p>
       </div>
 
       {/* Live Syndication Endpoints verification */}
@@ -388,7 +341,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           Public SEO & Syndication Feed Health
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          All endpoints are generated dynamically by the Express server according to international standards.
+          These endpoints are generated dynamically from Appwrite and update as soon as published articles are stored.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">

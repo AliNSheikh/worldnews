@@ -29,7 +29,7 @@ export const EditorialCharterModal: React.FC<EditorialCharterModalProps> = ({
                 {t.editorialGuidelines}
               </h2>
               <p className="text-xs text-slate-400">
-                World News Code of Ethics, Verification Standards & AI Disclosure
+                News Discover Code of Ethics, Verification Standards & AI Disclosure
               </p>
             </div>
           </div>
@@ -50,7 +50,7 @@ export const EditorialCharterModal: React.FC<EditorialCharterModalProps> = ({
               1. Editorial Classification System
             </h3>
             <p className="mb-3 text-slate-600">
-              World News rigorously categorizes every published piece to ensure complete transparency with readers:
+              News Discover rigorously categorizes every published piece to ensure complete transparency with readers:
             </p>
 
             <div className="space-y-2.5">
@@ -60,7 +60,7 @@ export const EditorialCharterModal: React.FC<EditorialCharterModalProps> = ({
                   <span>ORIGINAL REPORTING</span>
                 </div>
                 <p className="text-xs text-emerald-950">
-                  Authored directly by World News staff journalists or credentialed contributors. All factual claims are verified through direct interviews, primary documents, or first-hand field reporting.
+                  Authored directly by News Discover staff journalists or credentialed contributors. All factual claims are verified through direct interviews, primary documents, or first-hand field reporting.
                 </p>
               </div>
 
@@ -93,7 +93,7 @@ export const EditorialCharterModal: React.FC<EditorialCharterModalProps> = ({
               2. Sourcing & Verification Standard
             </h3>
             <p className="text-slate-600 text-xs sm:text-sm">
-              World News does <strong>NOT</strong> make claims of autonomous machine fact-checking. Artificial intelligence models do not replace journalistic investigation. We mandate that factual assertions cite at least two independent primary sources or authorized wire communiqués before publication.
+              News Discover does <strong>NOT</strong> make claims of autonomous machine fact-checking. Artificial intelligence models do not replace journalistic investigation. We mandate that factual assertions cite at least two independent primary sources or authorized wire communiqués before publication.
             </p>
           </div>
 

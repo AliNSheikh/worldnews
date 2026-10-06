@@ -14,14 +14,19 @@ export function updatePageSEO(options: {
   const { title, description, lang, canonicalPath, image, type = 'website', article, category, siteSettings } = options;
 
   // Title
-  document.title = `${title} | ${siteSettings.names[lang] || 'World News'}`;
+  document.title = `${title} | ${siteSettings.names[lang] || 'News Discover'}`;
 
   // Direction & Language attribute on <html>
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
 
   // Base URL
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://worldnews.org';
+  const configuredOrigin = String(siteSettings.siteUrl || '').trim().replace(/\/$/, '');
+  const origin = /^https?:\/\//i.test(configuredOrigin)
+    ? configuredOrigin
+    : typeof window !== 'undefined'
+    ? window.location.origin
+    : 'https://newsdiscover.example';
   const canonicalUrl = `${origin}${canonicalPath}`;
 
   // Helper to upsert meta tags
@@ -76,7 +81,7 @@ export function updatePageSEO(options: {
   setMeta('og:description', description, true);
   setMeta('og:type', type, true);
   setMeta('og:url', canonicalUrl, true);
-  setMeta('og:site_name', siteSettings.names[lang] || 'World News', true);
+  setMeta('og:site_name', siteSettings.names[lang] || 'News Discover', true);
   if (image) {
     setMeta('og:image', image, true);
   }
@@ -104,16 +109,22 @@ export function updatePageSEO(options: {
 
   const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   languages.forEach((code) => {
+    if (
+      article &&
+      (!article.translations[code]?.title ||
+        article.translations[code]?.translationStatus !== 'complete')
+    ) {
+      return;
+    }
+
     const link = document.createElement('link');
     link.setAttribute('rel', 'alternate');
     link.setAttribute('hreflang', code);
 
-    // Build localized path
     let localizedPath = canonicalPath;
     if (article) {
       const trans = article.translations[code];
-      const catSlug = article.category;
-      localizedPath = `/${code}/news/${catSlug}/${trans?.slug || article.translations.en.slug}`;
+      localizedPath = `/${code}/news/${article.category}/${trans.slug}`;
     } else if (category) {
       localizedPath = `/${code}/category/${category.slug}`;
     } else {
@@ -129,9 +140,14 @@ export function updatePageSEO(options: {
   defaultLink.setAttribute('rel', 'alternate');
   defaultLink.setAttribute('hreflang', 'x-default');
   if (article) {
+    const sourceLang = article.sourceLanguage || lang;
+    const sourceTranslation =
+      article.translations[sourceLang] ||
+      languages.map((code) => article.translations[code]).find((item) => item?.title) ||
+      article.translations.en;
     defaultLink.setAttribute(
       'href',
-      `${origin}/en/news/${article.category}/${article.translations.en?.slug || article.translations[lang].slug}`
+      `${origin}/${sourceTranslation.language}/news/${article.category}/${sourceTranslation.slug}`
     );
   } else if (category) {
     defaultLink.setAttribute('href', `${origin}/en/category/${category.slug}`);
@@ -148,7 +164,7 @@ export function updatePageSEO(options: {
   const orgSchema = {
     '@context': 'https://schema.org',
     '@type': 'NewsMediaOrganization',
-    name: siteSettings.names[lang] || 'World News',
+    name: siteSettings.names[lang] || 'News Discover',
     url: origin,
     logo: {
       '@type': 'ImageObject',
@@ -190,7 +206,7 @@ export function updatePageSEO(options: {
       ],
       publisher: {
         '@type': 'NewsMediaOrganization',
-        name: siteSettings.names[lang] || 'World News',
+        name: siteSettings.names[lang] || 'News Discover',
         url: origin,
       },
       articleSection: article.category,

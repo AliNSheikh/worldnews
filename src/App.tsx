@@ -24,6 +24,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginGate } from './components/AdminLoginGate';
 import { updatePageSEO } from './utils/seo';
 import { analytics } from './utils/analytics';
+import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTranslation';
 import { ShieldCheck, ChevronRight, Sparkles } from 'lucide-react';
 
 export function App() {
@@ -183,7 +184,7 @@ export function App() {
     if (!activeArticle && !isAdminOpen) {
       if (selectedCategory === 'all') {
         updatePageSEO({
-          title: settings.names[currentLang] || 'World News',
+          title: settings.names[currentLang] || 'News Discover',
           description: settings.descriptions[currentLang] || '24/7 International Digital Newsroom',
           lang: currentLang,
           canonicalPath: `/${currentLang}`,
@@ -206,13 +207,25 @@ export function App() {
   // User Actions
   const handleLanguageChange = (lang: LanguageCode) => {
     const from = currentLang;
-    setCurrentLang(lang);
-    analytics.trackLanguageChange(from, lang);
 
     if (activeArticle) {
-      const trans = activeArticle.translations[lang] || activeArticle.translations.en;
-      window.history.pushState({}, '', `/${lang}/news/${activeArticle.category}/${trans.slug}`);
-    } else if (selectedCategory !== 'all') {
+      const trans = getArticleTranslation(activeArticle, lang);
+      const effectiveLang = hasCompleteTranslation(activeArticle, lang)
+        ? lang
+        : trans.language;
+      setCurrentLang(effectiveLang);
+      analytics.trackLanguageChange(from, effectiveLang);
+      window.history.pushState(
+        {},
+        '',
+        `/${effectiveLang}/news/${activeArticle.category}/${trans.slug}`
+      );
+      return;
+    }
+
+    setCurrentLang(lang);
+    analytics.trackLanguageChange(from, lang);
+    if (selectedCategory !== 'all') {
       window.history.pushState({}, '', `/${lang}/category/${selectedCategory}`);
     } else {
       window.history.pushState({}, '', `/${lang}`);
@@ -223,8 +236,16 @@ export function App() {
     setActiveArticle(article);
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    const trans = article.translations[currentLang] || article.translations.en;
-    window.history.pushState({}, '', `/${currentLang}/news/${article.category}/${trans.slug}`);
+    const trans = getArticleTranslation(article, currentLang);
+    const effectiveLang = hasCompleteTranslation(article, currentLang)
+      ? currentLang
+      : trans.language;
+    if (effectiveLang !== currentLang) setCurrentLang(effectiveLang);
+    window.history.pushState(
+      {},
+      '',
+      `/${effectiveLang}/news/${article.category}/${trans.slug}`
+    );
   };
 
   const handleSelectCategory = (slug: string) => {
@@ -453,7 +474,7 @@ export function App() {
                     </h3>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Transparent reporting standards. Learn how World News distinguishes original journalism, AI assistance, and verified wire attribution.
+                    Transparent source standards. Learn how News Discover handles source-derived imports, original media metadata, verification, and editorial updates.
                   </p>
                   <button
                     onClick={() => setIsCharterOpen(true)}

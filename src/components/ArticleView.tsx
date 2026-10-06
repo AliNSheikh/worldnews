@@ -33,6 +33,7 @@ import { CommentsSection } from './CommentsSection';
 import { ArticleCard } from './ArticleCard';
 import { updatePageSEO } from '../utils/seo';
 import { analytics } from '../utils/analytics';
+import { getArticleTranslation, hasCompleteTranslation } from '../utils/articleTranslation';
 
 interface ArticleViewProps {
   article: Article;
@@ -60,7 +61,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
   onOpenCharter,
 }) => {
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
-  const trans = article.translations[currentLang] || article.translations.en;
+  const trans = getArticleTranslation(article, currentLang);
   const [copied, setCopied] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const [videoMode, setVideoMode] = useState<'embed' | 'screenshot'>('embed');
