@@ -274,6 +274,20 @@ function escapeXml(unsafe: string): string {
   });
 }
 
+function normalizeImportedUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.hash = '';
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid'].forEach((key) =>
+      url.searchParams.delete(key)
+    );
+    url.searchParams.sort();
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return String(rawUrl || '').trim().replace(/#.*$/, '').replace(/\/$/, '');
+  }
+}
+
 // Scheduled RSS automation: English-only, 60-minute freshness window, deduplication, video and image handling
 export async function runRssImportJob(sourceId?: string): Promise<{ success: boolean; count: number; logMessage: string }> {
   const sources = sourceId
@@ -352,11 +366,15 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         }
 
         // Check if article with this URL or title already exists
-        const exists = db.articles.some(
-          (a) =>
-            a.originalUrl === targetUrl ||
-            a.translations?.en?.title?.trim().toLowerCase() === targetTitle.toLowerCase()
-        );
+        const normalizedTargetUrl = normalizeImportedUrl(targetUrl);
+        const normalizedTargetTitle = targetTitle.toLowerCase().replace(/\s+/g, ' ').trim();
+        const exists = db.articles.some((a) => {
+          const existingTitle = a.translations?.en?.title?.toLowerCase().replace(/\s+/g, ' ').trim();
+          return (
+            normalizeImportedUrl(a.originalUrl || '') === normalizedTargetUrl ||
+            existingTitle === normalizedTargetTitle
+          );
+        });
         if (exists) {
           continue;
         }
@@ -495,11 +513,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: Object.values(draft.translations).every(
-            (translation) => translation.translationStatus === 'complete'
-          )
-            ? 'published'
-            : 'review',
+          status: draft.translations.en?.translationStatus === 'complete' ? 'published' : 'review',
           isBreaking: totalImported === 0,
           isPinned: false,
           priority: 5,
@@ -539,7 +553,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
     startedAt: started,
     completedAt: completed,
     status: totalImported > 0 ? 'success' : 'warning',
-    errorMessage: totalImported === 0 ? 'No new items published within the last 24 hours found.' : null,
+    errorMessage: totalImported === 0 ? 'No new items published within the last 60 minutes found.' : null,
     importedCount: totalImported,
   });
 
@@ -548,6 +562,6 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
   return {
     success: true,
     count: totalImported,
-    logMessage: `RSS import complete. ${totalImported} fresh articles ingested from verified feed/page content with grounded multilingual SEO metadata.`,
+    logMessage: `RSS import complete. ${totalImported} fresh English articles ingested from verified feed/page content with grounded SEO metadata.`,
   };
 }
