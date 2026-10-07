@@ -169,58 +169,23 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           </div>
         </div>
 
-        {/* Site Languages & Automatic Translation */}
-        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-4">
-          <div>
+        {/* Official English Edition */}
+        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-indigo-700" />
             <h4 className="font-bold text-xs uppercase tracking-wider text-indigo-950">
-              Site Languages & Automatic Article Translation
+              Official Site Language
             </h4>
-            <p className="text-xs text-indigo-900 mt-1 leading-relaxed">
-              Every newly fetched article is stored in its source language and automatically translated into each enabled language when the server translation provider is available. Language switching uses the matching stored edition instead of showing the source language.
-            </p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {[
-              ['en', 'English'],
-              ['ar', 'العربية'],
-              ['de', 'Deutsch'],
-              ['es', 'Español'],
-              ['fr', 'Français'],
-            ].map(([code, label]) => {
-              const checked = enabledLanguages.includes(code as LanguageCode);
-              return (
-                <label
-                  key={code}
-                  className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    checked
-                      ? 'bg-white border-indigo-400 text-indigo-950'
-                      : 'bg-white/60 border-indigo-100 text-slate-500'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      setEnabledLanguages((current) => {
-                        if (e.target.checked) {
-                          return current.includes(code as LanguageCode)
-                            ? current
-                            : [...current, code as LanguageCode];
-                        }
-                        const next = current.filter((lang) => lang !== code);
-                        return next.length ? next : current;
-                      });
-                    }}
-                    className="rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-xs font-bold">{label}</span>
-                </label>
-              );
-            })}
+          <div className="flex items-center gap-3 p-3 bg-white border border-indigo-200 rounded-lg">
+            <span className="text-lg">🇬🇧</span>
+            <div>
+              <div className="text-sm font-bold text-slate-900">English</div>
+              <div className="text-xs text-slate-500">
+                English is the only public and generated edition. Automatic translation is disabled.
+              </div>
+            </div>
           </div>
-          <p className="text-[11px] text-indigo-700">
-            Translation uses Google Cloud Translation when <code>GOOGLE_TRANSLATE_API_KEY</code> is configured in Vercel. Gemini credentials are not used for translation; this keeps article translation independent from Gemini quota.
-          </p>
         </div>
 
         {/* Contact Details Section */}
