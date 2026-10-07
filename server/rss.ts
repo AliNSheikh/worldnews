@@ -133,55 +133,29 @@ export async function fetchAndParseRssFeed(rssUrl: string, timeoutMs = 6000): Pr
 
 export function generateSitemapXml(origin: string): string {
   const articles = db.getArticles({ status: 'published' });
-  const categories = db.getCategories().filter((c) => c.isVisible);
-  const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
+  const categories = db.getCategories().filter((category) => category.isVisible && !category.seoNoIndex);
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n`;
+  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+  xml += `  <url><loc>${origin}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>\n`;
 
-  // Home pages
-  languages.forEach((lang) => {
+  categories.forEach((category) => {
     xml += `  <url>\n`;
-    xml += `    <loc>${origin}/${lang}</loc>\n`;
-    languages.forEach((alt) => {
-      xml += `    <xhtml:link rel="alternate" hreflang="${alt}" href="${origin}/${alt}" />\n`;
-    });
-    xml += `    <xhtml:link rel="alternate" hreflang="x-default" href="${origin}/en" />\n`;
+    xml += `    <loc>${origin}/category/${category.slug}</loc>\n`;
     xml += `    <changefreq>hourly</changefreq>\n`;
-    xml += `    <priority>1.0</priority>\n`;
+    xml += `    <priority>0.8</priority>\n`;
     xml += `  </url>\n`;
   });
 
-  // Category pages
-  categories.forEach((cat) => {
-    languages.forEach((lang) => {
-      xml += `  <url>\n`;
-      xml += `    <loc>${origin}/${lang}/category/${cat.slug}</loc>\n`;
-      languages.forEach((alt) => {
-        xml += `    <xhtml:link rel="alternate" hreflang="${alt}" href="${origin}/${alt}/category/${cat.slug}" />\n`;
-      });
-      xml += `    <changefreq>always</changefreq>\n`;
-      xml += `    <priority>0.8</priority>\n`;
-      xml += `  </url>\n`;
-    });
-  });
-
-  // Article pages
-  articles.forEach((art) => {
-    languages.forEach((lang) => {
-      const trans = art.translations[lang] || art.translations.en;
-      xml += `  <url>\n`;
-      xml += `    <loc>${origin}/${lang}/news/${art.category}/${trans.slug}</loc>\n`;
-      languages.forEach((alt) => {
-        const altTrans = art.translations[alt] || art.translations.en;
-        xml += `    <xhtml:link rel="alternate" hreflang="${alt}" href="${origin}/${alt}/news/${art.category}/${altTrans.slug}" />\n`;
-      });
-      xml += `    <xhtml:link rel="alternate" hreflang="x-default" href="${origin}/en/news/${art.category}/${art.translations.en.slug}" />\n`;
-      xml += `    <lastmod>${new Date(art.updatedAt || art.publishedAt).toISOString().split('T')[0]}</lastmod>\n`;
-      xml += `    <changefreq>daily</changefreq>\n`;
-      xml += `    <priority>${art.isPinned || art.isBreaking ? '0.9' : '0.7'}</priority>\n`;
-      xml += `  </url>\n`;
-    });
+  articles.forEach((article) => {
+    const translation = article.translations.en;
+    if (!translation?.slug) return;
+    xml += `  <url>\n`;
+    xml += `    <loc>${origin}/news/${article.category}/${translation.slug}</loc>\n`;
+    xml += `    <lastmod>${new Date(article.updatedAt || article.publishedAt).toISOString().split('T')[0]}</lastmod>\n`;
+    xml += `    <changefreq>daily</changefreq>\n`;
+    xml += `    <priority>${article.isPinned || article.isBreaking ? '0.9' : '0.7'}</priority>\n`;
+    xml += `  </url>\n`;
   });
 
   xml += `</urlset>`;
@@ -198,31 +172,24 @@ export function generateNewsSitemapXml(origin: string): string {
       return Number.isFinite(published) && published >= cutoff;
     })
     .slice(0, 1000);
-  const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
   const settings = db.getSettings();
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n`;
 
   articles.forEach((art) => {
-    languages.forEach((lang) => {
-      const trans = art.translations[lang] || art.translations.en;
-      const pubName = settings.names[lang] || 'World News';
-      xml += `  <url>\n`;
-      xml += `    <loc>${origin}/${lang}/news/${art.category}/${trans.slug}</loc>\n`;
-      xml += `    <news:news>\n`;
-      xml += `      <news:publication>\n`;
-      xml += `        <news:name>${escapeXml(pubName)}</news:name>\n`;
-      xml += `        <news:language>${lang}</news:language>\n`;
-      xml += `      </news:publication>\n`;
-      xml += `      <news:publication_date>${new Date(art.publishedAt).toISOString()}</news:publication_date>\n`;
-      xml += `      <news:title>${escapeXml(trans.title)}</news:title>\n`;
-      if (trans.keywords && trans.keywords.length > 0) {
-        xml += `      <news:keywords>${escapeXml(trans.keywords.join(', '))}</news:keywords>\n`;
-      }
-      xml += `    </news:news>\n`;
-      xml += `  </url>\n`;
-    });
+    const trans = art.translations.en;
+    if (!trans?.slug) return;
+    const pubName = settings.names.en || 'World News';
+    xml += `  <url>\n`;
+    xml += `    <loc>${origin}/news/${art.category}/${trans.slug}</loc>\n`;
+    xml += `    <news:news>\n`;
+    xml += `      <news:publication><news:name>${escapeXml(pubName)}</news:name><news:language>en</news:language></news:publication>\n`;
+    xml += `      <news:publication_date>${new Date(art.publishedAt).toISOString()}</news:publication_date>\n`;
+    xml += `      <news:title>${escapeXml(trans.title)}</news:title>\n`;
+    if (trans.keywords?.length) xml += `      <news:keywords>${escapeXml(trans.keywords.join(', '))}</news:keywords>\n`;
+    xml += `    </news:news>\n`;
+    xml += `  </url>\n`;
   });
 
   xml += `</urlset>`;
@@ -232,14 +199,15 @@ export function generateNewsSitemapXml(origin: string): string {
 export function generateRssXml(origin: string, lang: LanguageCode = 'en'): string {
   const articles = db.getArticles({ status: 'published' });
   const settings = db.getSettings();
-  const siteTitle = settings.names[lang] || 'World News';
-  const siteDesc = settings.descriptions[lang] || '24/7 International Digital Newsroom';
+  lang = 'en';
+  const siteTitle = settings.names.en || 'World News';
+  const siteDesc = settings.descriptions.en || '24/7 International Digital Newsroom';
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   xml += `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n`;
   xml += `  <channel>\n`;
   xml += `    <title>${escapeXml(siteTitle)}</title>\n`;
-  xml += `    <link>${origin}/${lang}</link>\n`;
+  xml += `    <link>${origin}/</link>\n`;
   xml += `    <description>${escapeXml(siteDesc)}</description>\n`;
   xml += `    <language>${lang}</language>\n`;
   xml += `    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>\n`;
@@ -247,7 +215,7 @@ export function generateRssXml(origin: string, lang: LanguageCode = 'en'): strin
 
   articles.slice(0, 30).forEach((art) => {
     const trans = art.translations[lang] || art.translations.en;
-    const itemUrl = `${origin}/${lang}/news/${art.category}/${trans.slug}`;
+    const itemUrl = `${origin}/news/${art.category}/${trans.slug}`;
 
     xml += `    <item>\n`;
     xml += `      <title>${escapeXml(trans.title)}</title>\n`;
@@ -306,7 +274,7 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-// Scheduled RSS Automation execution with authentic URL verification, 24h freshness filter, video embedding, and AI image handling
+// Scheduled RSS automation: English-only, 60-minute freshness window, deduplication, video and image handling
 export async function runRssImportJob(sourceId?: string): Promise<{ success: boolean; count: number; logMessage: string }> {
   const sources = sourceId
     ? db.getSources().filter((s) => s.id === sourceId)
@@ -361,8 +329,8 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         const now = new Date();
         const hoursDifference = (now.getTime() - itemDate.getTime()) / (1000 * 60 * 60);
 
-        // Skip only if older than 7 days
-        if (!isNaN(hoursDifference) && hoursDifference > 168) {
+        // Import only stories published during the last 60 minutes.
+        if (isNaN(hoursDifference) || hoursDifference < 0 || hoursDifference > 1) {
           continue;
         }
 
@@ -387,8 +355,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         const exists = db.articles.some(
           (a) =>
             a.originalUrl === targetUrl ||
-            a.translations?.en?.title === targetTitle ||
-            a.translations?.ar?.title === targetTitle
+            a.translations?.en?.title?.trim().toLowerCase() === targetTitle.toLowerCase()
         );
         if (exists) {
           continue;
