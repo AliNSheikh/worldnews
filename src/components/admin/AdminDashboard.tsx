@@ -835,14 +835,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, SEO metadata, and translations for enabled site languages.
+                    An Appwrite scheduled function starts automatically every hour. It fetches unique English RSS/Atom stories published during the previous 60 minutes and persists them to Appwrite with source images and SEO metadata.
                   </p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 self-start sm:self-center">
                   <button
                     onClick={handleRunCrawlerNow}
-                    disabled={isCrawlerRunning || isTranslationRunning}
+                    disabled={isCrawlerRunning}
                     className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <RefreshCw className={`w-4 h-4 ${isCrawlerRunning ? 'animate-spin' : ''}`} />
