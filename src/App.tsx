@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Article, Category, LanguageCode, NewsSource, SiteSettings, AutomationLog } from './types';
 import { TRANSLATIONS } from './data/translations';
 import {
-  INITIAL_ARTICLES,
   INITIAL_CATEGORIES,
   INITIAL_NEWS_SOURCES,
   INITIAL_SITE_SETTINGS,
@@ -23,16 +22,8 @@ import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTr
 import { NewsDiscoverHome } from './components/NewsDiscoverHome';
 
 export function App() {
-  // Navigation & View States
-  const [currentLang, setCurrentLang] = useState<LanguageCode>(() => {
-    if (typeof window !== 'undefined') {
-      const pathLang = window.location.pathname.split('/')[1] as LanguageCode;
-      if (['ar', 'en', 'de', 'es', 'fr'].includes(pathLang)) return pathLang;
-      const stored = localStorage.getItem('worldnews_lang') as LanguageCode;
-      if (['ar', 'en', 'de', 'es', 'fr'].includes(stored)) return stored;
-    }
-    return 'en';
-  });
+  // Navigation & View States — English is the only public edition.
+  const [currentLang] = useState<LanguageCode>('en');
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeArticle, setActiveArticle] = useState<Article | null>(null);
@@ -42,32 +33,69 @@ export function App() {
   const [isCharterOpen, setIsCharterOpen] = useState(false);
 
   // Data Store States
-  const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [isArticlesLoading, setIsArticlesLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [sources, setSources] = useState<NewsSource[]>(INITIAL_NEWS_SOURCES);
   const [settings, setSettings] = useState<SiteSettings>(INITIAL_SITE_SETTINGS);
   const [logs, setLogs] = useState<AutomationLog[]>(INITIAL_AUTOMATION_LOGS);
 
-  // Sync Language direction (RTL / LTR)
+  // English-only document metadata.
   useEffect(() => {
-    document.documentElement.lang = currentLang;
-    document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('worldnews_lang', currentLang);
-    }
-  }, [currentLang]);
+    document.documentElement.lang = 'en';
+    document.documentElement.dir = 'ltr';
+    if (typeof window !== 'undefined') localStorage.removeItem('worldnews_lang');
+  }, []);
 
   // Fetch live articles and settings from server
-  const fetchArticles = useCallback(async () => {
+  const fetchArticles = useCallback(async (limit = 50) => {
+    setIsArticlesLoading(true);
     try {
-      const res = await fetch('/api/articles');
+      const res = await fetch(`/api/articles?status=published&limit=${Math.min(limit, 500)}&offset=0`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (res.ok) {
         const data = await res.json();
-        setArticles(data);
+        setArticles(Array.isArray(data) ? data : []);
+      } else {
+        setArticles([]);
       }
     } catch {
-      // Keep initial data if offline or dev startup
+      setArticles([]);
+    } finally {
+      setIsArticlesLoading(false);
     }
+  }, []);
+
+  const fetchAllArticlesForAdmin = useCallback(async () => {
+    try {
+      const res = await fetch('/api/articles?limit=500&offset=0', {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArticles(Array.isArray(data) ? data : []);
+      }
+    } catch {}
+  }, []);
+
+  const fetchCategoryArticles = useCallback(async (category: string) => {
+    try {
+      const res = await fetch(`/api/articles?status=published&category=${encodeURIComponent(category)}&limit=50&offset=0`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+      setArticles((current) => {
+        const map = new Map(current.map((article) => [article.id, article]));
+        data.forEach((article: Article) => map.set(article.id, article));
+        return [...map.values()];
+      });
+    } catch {}
   }, []);
 
   const fetchCategories = useCallback(async () => {
@@ -111,27 +139,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    fetchArticles();
+    fetchArticles(50);
     fetchCategories();
     fetchSources();
     fetchSettings();
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
 
-  // Keep the active edition aligned with languages enabled in the control panel.
   useEffect(() => {
-    const enabled = settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr'];
-    if (!enabled.includes(currentLang)) {
-      const fallback =
-        (enabled.includes(settings.defaultLanguage) && settings.defaultLanguage) ||
-        enabled[0] ||
-        'en';
-      setCurrentLang(fallback as LanguageCode);
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin')) {
-        window.history.replaceState({}, '', `/${fallback}`);
-      }
-    }
-  }, [settings.enabledLanguages, settings.defaultLanguage, currentLang]);
+    if (isAdminAuthenticated) fetchAllArticlesForAdmin();
+  }, [isAdminAuthenticated, fetchAllArticlesForAdmin]);
 
   // Initialize Google Analytics when measurement ID is configured
   useEffect(() => {
@@ -150,8 +167,11 @@ export function App() {
         return;
       }
       const parts = path.split('/').filter(Boolean);
-      if (parts[0] && ['ar', 'en', 'de', 'es', 'fr'].includes(parts[0])) {
-        setCurrentLang(parts[0] as LanguageCode);
+      if (parts[0] && ['ar', 'de', 'es', 'fr'].includes(parts[0])) {
+        parts[0] = 'en';
+        window.history.replaceState({}, '', '/' + parts.join('/'));
+      }
+      if (parts[0] === 'en') {
         if (parts[1] === 'news' && parts[3]) {
           const slug = parts[3];
           const found = articles.find((a) =>
@@ -203,8 +223,8 @@ export function App() {
       } else {
         const catObj = categories.find((c) => c.slug === selectedCategory);
         updatePageSEO({
-          title: `${catObj?.names[currentLang] || selectedCategory} News`,
-          description: catObj?.descriptions[currentLang] || `Latest reports in ${selectedCategory}`,
+          title: catObj?.seoTitle || `${catObj?.names.en || selectedCategory} News`,
+          description: catObj?.seoDescription || catObj?.descriptions.en || `Latest reports in ${selectedCategory}`,
           lang: currentLang,
           canonicalPath: `/${currentLang}/category/${selectedCategory}`,
           category: catObj,
@@ -215,47 +235,16 @@ export function App() {
   }, [activeArticle, isAdminOpen, selectedCategory, currentLang, settings, categories]);
 
   // User Actions
-  const handleLanguageChange = (lang: LanguageCode) => {
-    const from = currentLang;
-
-    if (activeArticle) {
-      const trans = getArticleTranslation(activeArticle, lang);
-      const effectiveLang = hasCompleteTranslation(activeArticle, lang)
-        ? lang
-        : trans.language;
-      setCurrentLang(effectiveLang);
-      analytics.trackLanguageChange(from, effectiveLang);
-      window.history.pushState(
-        {},
-        '',
-        `/${effectiveLang}/news/${activeArticle.category}/${trans.slug}`
-      );
-      return;
-    }
-
-    setCurrentLang(lang);
-    analytics.trackLanguageChange(from, lang);
-    if (selectedCategory !== 'all') {
-      window.history.pushState({}, '', `/${lang}/category/${selectedCategory}`);
-    } else {
-      window.history.pushState({}, '', `/${lang}`);
-    }
+  const handleLanguageChange = (_lang: LanguageCode) => {
+    // English is the only public edition.
   };
 
   const handleSelectArticle = (article: Article) => {
     setActiveArticle(article);
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    const trans = getArticleTranslation(article, currentLang);
-    const effectiveLang = hasCompleteTranslation(article, currentLang)
-      ? currentLang
-      : trans.language;
-    if (effectiveLang !== currentLang) setCurrentLang(effectiveLang);
-    window.history.pushState(
-      {},
-      '',
-      `/${effectiveLang}/news/${article.category}/${trans.slug}`
-    );
+    const trans = getArticleTranslation(article, 'en');
+    window.history.pushState({}, '', `/en/news/${article.category}/${trans.slug}`);
   };
 
   const handleSelectCategory = (slug: string) => {
@@ -264,9 +253,11 @@ export function App() {
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (slug === 'all') {
-      window.history.pushState({}, '', `/${currentLang}`);
+      window.history.pushState({}, '', '/en');
+      fetchArticles(50);
     } else {
-      window.history.pushState({}, '', `/${currentLang}/category/${slug}`);
+      window.history.pushState({}, '', `/en/category/${slug}`);
+      fetchCategoryArticles(slug);
     }
   };
 
@@ -275,7 +266,7 @@ export function App() {
     setSelectedCategory('all');
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.history.pushState({}, '', `/${currentLang}`);
+    window.history.pushState({}, '', '/en');
   };
 
   const handleUpdateSettings = async (newSettings: Partial<SiteSettings>) => {
@@ -354,12 +345,25 @@ export function App() {
           setIsAdminAuthenticated(false);
           window.history.pushState({}, '', '/');
         }}
-        onRefreshArticles={fetchArticles}
+        onRefreshArticles={fetchAllArticlesForAdmin}
         onRefreshSources={fetchSources}
+        onRefreshCategories={fetchCategories}
         onRefreshLogs={fetchLogs}
         onUpdateSettings={handleUpdateSettings}
         onSelectArticle={handleSelectArticle}
       />
+    );
+  }
+
+  if (isArticlesLoading && !isAdminOpen && articles.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-slate-700">
+          <div className="w-10 h-10 rounded-full border-4 border-slate-200 border-t-red-600 animate-spin" />
+          <div className="text-sm font-bold">Loading the latest News Discover stories…</div>
+          <div className="text-xs text-slate-400">Fetching fresh articles from the database</div>
+        </div>
+      </div>
     );
   }
 
