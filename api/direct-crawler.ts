@@ -12,7 +12,7 @@ const TABLES = {
   logs: 'newsroom_logs',
   settings: 'newsroom_settings',
 };
-const LANGS = ['en', 'ar', 'de', 'es', 'fr'] as const;
+const LANGS = ['en'] as const;
 type Lang = (typeof LANGS)[number];
 
 type FeedItem = {
@@ -214,9 +214,7 @@ function parseFeed(xml: string): FeedItem[] {
       return {
         title: stripHtml(tag(block, ['title'])),
         link: link.trim(),
-        pubDate:
-          tag(block, ['pubDate', 'published', 'updated', 'dc:date']) ||
-          new Date().toISOString(),
+        pubDate: tag(block, ['pubDate', 'published', 'updated', 'dc:date']),
         description: stripHtml(rawDescription),
         content: stripHtml(rawContent || rawDescription),
         imageUrl,
@@ -530,6 +528,31 @@ function configuredLanguages(settingsRows: any[]): Lang[] {
   return langs.length ? langs : [...LANGS];
 }
 
+function canonicalSourceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    [...url.searchParams.keys()].forEach((key) => {
+      if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) url.searchParams.delete(key);
+    });
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+function titleKey(value: string): string {
+  return stripHtml(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function isFreshWithinLastHour(pubDate: string): boolean {
+  const time = new Date(pubDate).getTime();
+  if (!Number.isFinite(time)) return false;
+  const now = Date.now();
+  return time >= now - 60 * 60 * 1000 && time <= now + 5 * 60 * 1000;
+}
+
 async function writeLog(
   source: string,
   status: 'success' | 'failed' | 'warning',
@@ -560,9 +583,15 @@ async function processSource(
 ) {
   const diagnostics: string[] = [];
   let imported = 0;
-  const failedUrls = new Set<string>(
-    Array.isArray(source.failedUrls) ? source.failedUrls.filter(Boolean) : []
-  );
+  const rawSourceLanguage = String(source.defaultLanguage || source.language || 'en').toLowerCase().slice(0, 2);
+  if (rawSourceLanguage !== 'en') {
+    return {
+      imported: 0,
+      diagnostics: [`Skipped ${source.name}: News Discover is English-only and this source is configured as ${rawSourceLanguage.toUpperCase()}.`],
+      parsedItems: 0,
+      remaining: 0,
+    };
+  }
 
   try {
     const xml = await fetchText(
@@ -576,12 +605,22 @@ async function processSource(
     if (!items.length) throw new Error('Feed returned no parseable RSS/Atom items.');
 
     const existingUrls = new Set(
-      existingArticles.map((article) => String(article.originalUrl || '')).filter(Boolean)
+      existingArticles
+        .map((article) => canonicalSourceUrl(String(article.originalUrl || '')))
+        .filter(Boolean)
     );
-    const candidates = items.filter(
-      (item) => !existingUrls.has(item.link) && !failedUrls.has(item.link)
+    const existingTitles = new Set(
+      existingArticles
+        .map((article) => titleKey(article?.translations?.en?.title || ''))
+        .filter(Boolean)
     );
-    const batch = candidates.slice(0, Math.max(1, maxNew));
+    const candidates = items.filter((item) => {
+      if (!isFreshWithinLastHour(item.pubDate)) return false;
+      const canonical = canonicalSourceUrl(item.link);
+      const headline = titleKey(item.title);
+      return !existingUrls.has(canonical) && !existingTitles.has(headline);
+    });
+    const batch = candidates;
 
     for (const item of batch) {
       try {
@@ -603,12 +642,12 @@ async function processSource(
             .sort((a, b) => b.length - a.length)[0] || description;
 
         if (!title || sourceBody.length < 40) {
-          failedUrls.add(item.link);
           diagnostics.push(`${item.title}: skipped because source text was unavailable.`);
           continue;
         }
 
-        const id = `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+        const canonicalUrl = canonicalSourceUrl(item.link);
+        const id = `art-${crypto.createHash('sha256').update(canonicalUrl).digest('hex').slice(0, 26)}`;
         const sourceLanguage = normalizeLang(source.defaultLanguage || source.language);
         const translations: Record<Lang, any> = Object.fromEntries(
           LANGS.map((lang) => [lang, emptyTranslation(lang, id)])
@@ -666,7 +705,7 @@ async function processSource(
           category: source.category || 'world',
           editorialType: 'original',
           originalSource: source.name,
-          originalUrl: item.link,
+          originalUrl: canonicalUrl,
           originalDescription: description,
           sourceLanguage,
           officialImageUrl: image || undefined,
@@ -693,21 +732,22 @@ async function processSource(
 
         await upsert(TABLES.articles, article.id, article);
         existingArticles.unshift(article);
-        existingUrls.add(item.link);
+        existingUrls.add(canonicalUrl);
+        existingTitles.add(titleKey(title));
         imported += 1;
       } catch (error: any) {
-        failedUrls.add(item.link);
         diagnostics.push(`${item.title}: ${error?.message || error}`);
       }
     }
 
-    const remaining = Math.max(0, candidates.length - batch.length);
+    const remaining = 0;
     const updated = {
       ...source,
       lastImport: new Date().toISOString(),
       lastError: diagnostics.length ? diagnostics.slice(-5).join(' | ') : null,
       articlesCount: Number(source.articlesCount || 0) + imported,
-      failedUrls: [...failedUrls].slice(-200),
+      defaultLanguage: 'en',
+      language: 'en',
     };
     await upsert(TABLES.sources, source.id, updated);
 
@@ -882,10 +922,8 @@ export default async function handler(req: any, res: any) {
         ingestionMode: 'source-direct',
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
         geminiRequired: false,
-        translationProviderConfigured: Boolean(process.env.GOOGLE_TRANSLATE_API_KEY),
-        translationProvider: process.env.GOOGLE_TRANSLATE_API_KEY
-          ? 'google-cloud-translation-v2'
-          : 'not-configured',
+        translationProviderConfigured: false,
+        translationProvider: 'disabled-english-only',
         translationBacklog: articles.filter((article) =>
           enabledLanguages.some(
             (lang) =>
@@ -894,7 +932,10 @@ export default async function handler(req: any, res: any) {
           )
         ).length,
         enabledLanguages,
-        scheduler: 'appwrite-hourly-function',
+        scheduler: 'hourly-background-scheduler',
+        englishOnly: true,
+        freshnessWindowMinutes: 60,
+        duplicatePolicy: 'canonical-url + normalized-title + deterministic-row-id',
         sourcesCount: sources.length,
         activeSourcesCount: sources.filter((source) => source.isActive !== false).length,
         articlesCount: articles.length,
@@ -1049,8 +1090,9 @@ export default async function handler(req: any, res: any) {
       translationBacklog: translationBackfill.remaining,
       hasMore,
       batchSize: requestedBatch,
-      ingestionMode: 'source-direct-multilingual',
-      enabledLanguages,
+      ingestionMode: 'english-source-direct-60m',
+      enabledLanguages: ['en'],
+      freshnessWindowMinutes: 60,
       latestFetch: {
         startedAt: log.startedAt,
         completedAt: log.completedAt,
@@ -1060,7 +1102,7 @@ export default async function handler(req: any, res: any) {
       results,
       message:
         total > 0
-          ? `Crawler persisted ${total} article(s) in this batch. ${hasMore ? 'More unseen feed items remain and the scheduler will continue automatically.' : 'All currently available feed items are drained.'}`
+          ? `Crawler persisted ${total} unique English article(s) published within the last 60 minutes.`
           : hasMore
           ? 'This batch did not persist an article, but more unseen feed items remain for the next batch.'
           : errors.length
