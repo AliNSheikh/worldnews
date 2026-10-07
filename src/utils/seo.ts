@@ -43,6 +43,9 @@ export function updatePageSEO(options: {
 
   // Standard Meta
   setMeta('description', description);
+  if (category?.seoKeywords?.length) {
+    setMeta('keywords', category.seoKeywords.join(', '));
+  }
 
   // Google Search Console Verification
   if (siteSettings.googleSearchConsoleVerification) {
@@ -54,9 +57,12 @@ export function updatePageSEO(options: {
   }
 
   // Google News and Search Indexing Directives
-  setMeta('robots', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
-  setMeta('googlebot', 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
-  setMeta('googlebot-news', 'index, follow');
+  const robotsDirective = category?.seoNoIndex
+    ? 'noindex, follow'
+    : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
+  setMeta('robots', robotsDirective);
+  setMeta('googlebot', robotsDirective);
+  setMeta('googlebot-news', category?.seoNoIndex ? 'noindex, follow' : 'index, follow');
 
   // Google News Keywords
   if (article) {
@@ -103,57 +109,20 @@ export function updatePageSEO(options: {
   }
   canonicalLink.setAttribute('href', canonicalUrl);
 
-  // Hreflang Tags for all 5 languages
+  // English-only edition: remove legacy alternate-language hreflang tags.
   const existingHreflangs = document.querySelectorAll('link[rel="alternate"][hreflang]');
   existingHreflangs.forEach((el) => el.remove());
 
-  const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
-  languages.forEach((code) => {
-    if (
-      article &&
-      (!article.translations[code]?.title ||
-        article.translations[code]?.translationStatus !== 'complete')
-    ) {
-      return;
-    }
+  const englishAlternate = document.createElement('link');
+  englishAlternate.setAttribute('rel', 'alternate');
+  englishAlternate.setAttribute('hreflang', 'en');
+  englishAlternate.setAttribute('href', canonicalUrl);
+  document.head.appendChild(englishAlternate);
 
-    const link = document.createElement('link');
-    link.setAttribute('rel', 'alternate');
-    link.setAttribute('hreflang', code);
-
-    let localizedPath = canonicalPath;
-    if (article) {
-      const trans = article.translations[code];
-      localizedPath = `/${code}/news/${article.category}/${trans.slug}`;
-    } else if (category) {
-      localizedPath = `/${code}/category/${category.slug}`;
-    } else {
-      localizedPath = `/${code}`;
-    }
-
-    link.setAttribute('href', `${origin}${localizedPath}`);
-    document.head.appendChild(link);
-  });
-
-  // x-default hreflang
   const defaultLink = document.createElement('link');
   defaultLink.setAttribute('rel', 'alternate');
   defaultLink.setAttribute('hreflang', 'x-default');
-  if (article) {
-    const sourceLang = article.sourceLanguage || lang;
-    const sourceTranslation =
-      article.translations[sourceLang] ||
-      languages.map((code) => article.translations[code]).find((item) => item?.title) ||
-      article.translations.en;
-    defaultLink.setAttribute(
-      'href',
-      `${origin}/${sourceTranslation.language}/news/${article.category}/${sourceTranslation.slug}`
-    );
-  } else if (category) {
-    defaultLink.setAttribute('href', `${origin}/en/category/${category.slug}`);
-  } else {
-    defaultLink.setAttribute('href', `${origin}/en`);
-  }
+  defaultLink.setAttribute('href', canonicalUrl);
   document.head.appendChild(defaultLink);
 
   // Structured Data (JSON-LD)
@@ -170,8 +139,8 @@ export function updatePageSEO(options: {
       '@type': 'ImageObject',
       url: `${origin}/icon.svg`,
     },
-    publishingPrinciples: `${origin}/${lang}/disclaimer`,
-    ethicsPolicy: `${origin}/${lang}/standards`,
+    publishingPrinciples: `${origin}/disclaimer`,
+    ethicsPolicy: `${origin}/standards`,
     contactPoint: {
       '@type': 'ContactPoint',
       email: siteSettings.contactInfo.email,
@@ -228,13 +197,13 @@ export function updatePageSEO(options: {
           '@type': 'ListItem',
           position: 1,
           name: siteSettings.names[lang] || 'Front Page',
-          item: `${origin}/${lang}`,
+          item: `${origin}/`,
         },
         {
           '@type': 'ListItem',
           position: 2,
           name: category?.names[lang] || article.category,
-          item: `${origin}/${lang}/category/${article.category}`,
+          item: `${origin}/category/${article.category}`,
         },
         {
           '@type': 'ListItem',

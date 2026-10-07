@@ -30,6 +30,7 @@ import { ArticleEditorModal } from './ArticleEditorModal';
 import { RssSourcesPanel } from './RssSourcesPanel';
 import { CommentModerationPanel } from './CommentModerationPanel';
 import { NewsroomSettingsPanel } from './NewsroomSettingsPanel';
+import { CategorySeoPanel } from './CategorySeoPanel';
 
 interface AdminDashboardProps {
   articles: Article[];
@@ -40,6 +41,7 @@ interface AdminDashboardProps {
   currentLang: LanguageCode;
   onClose: () => void;
   onRefreshArticles: () => void;
+  onRefreshCategories: () => void;
   onRefreshSources: () => void;
   onRefreshLogs: () => void;
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
@@ -55,13 +57,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentLang,
   onClose,
   onRefreshArticles,
+  onRefreshCategories,
   onRefreshSources,
   onRefreshLogs,
   onUpdateSettings,
   onSelectArticle,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'articles' | 'ai-draft' | 'crawler' | 'sources' | 'comments' | 'settings'
+    'articles' | 'ai-draft' | 'crawler' | 'sources' | 'comments' | 'category-seo' | 'settings'
   >('articles');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -167,7 +170,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleTranslatePending = async () => {
     setIsTranslationRunning(true);
-    setCrawlerActionMessage('Translating pending article editions...');
+    setCrawlerActionMessage('English-only mode is enabled; translation jobs are disabled.');
     try {
       const res = await fetch('/api/crawler/translate-pending?batch=20', { method: 'POST' });
       const raw = await res.text();
@@ -198,7 +201,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleRegenerateAll = async () => {
     if (
       !confirm(
-        `Are you sure you want to regenerate all ${articles.length} articles in the "${selectedRegenFormat}" format? Authentic original source links will be verified first and preserved across all 5 language editions.`
+        `Are you sure you want to regenerate all ${articles.length} articles in the "${selectedRegenFormat}" format? Authentic original source links will be verified first and preserved for the English edition.`
       )
     ) {
       return;
@@ -375,7 +378,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       const draft = await res.json();
       setAiDraftResult(draft);
-      setAiStatusMessage('Multilingual draft successfully structured across all 5 editions.');
+      setAiStatusMessage('English draft successfully structured.');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setAiStatusMessage(`Notice: ${msg}`);
@@ -393,7 +396,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         originalSource: aiDraftResult.originalSource,
         originalUrl: aiDraftResult.originalUrl,
         image: 'https://images.unsplash.com/photo-1526470608268-f674ce90ebd4?auto=format&fit=crop&w=1200&q=80',
-        imageCredit: 'World News Multilingual Wire Service',
+        imageCredit: 'World News English Wire Service',
         imageLicense: 'Editorial wire licensing',
         status: 'published',
         isBreaking: false,
@@ -505,6 +508,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <MessageSquare className="w-4 h-4 text-emerald-400" />
             <span>Comments Queue</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('category-seo')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+              activeTab === 'category-seo'
+                ? 'border-sky-500 text-sky-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-sky-400" />
+            <span>Category SEO</span>
           </button>
 
           <button
@@ -864,7 +879,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, SEO metadata, and translations for enabled site languages.
+                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, English editorial content, and SEO metadata.
                   </p>
                 </div>
 
@@ -877,15 +892,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <RefreshCw className={`w-4 h-4 ${isCrawlerRunning ? 'animate-spin' : ''}`} />
                     <span>{isCrawlerRunning ? 'Crawling Wire Feeds...' : 'Run Hourly Crawl Cycle Now'}</span>
                   </button>
-                  <button
-                    onClick={handleTranslatePending}
-                    disabled={isCrawlerRunning || isTranslationRunning || !crawlerStatus?.translationProviderConfigured}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    <Globe className={`w-4 h-4 ${isTranslationRunning ? 'animate-pulse' : ''}`} />
-                    <span>{isTranslationRunning ? 'Translating...' : 'Translate Pending Articles'}</span>
-                  </button>
-                </div>
+                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-50 text-indigo-800 border border-indigo-200 rounded-xl text-xs font-bold whitespace-nowrap">
+                    <Globe className="w-4 h-4" />
+                    <span>English-only mode</span>
+                  </div>               </div>
               </div>
 
               {crawlerActionMessage && (
@@ -1082,7 +1092,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* TAB 4: COMMENTS */}
         {activeTab === 'comments' && <CommentModerationPanel />}
 
-        {/* TAB 5: SETTINGS */}
+        {/* TAB 5: CATEGORY SEO */}
+        {activeTab === 'category-seo' && (
+          <CategorySeoPanel
+            categories={categories}
+            onRefreshCategories={onRefreshCategories}
+          />
+        )}
+
+        {/* TAB 6: SETTINGS */}
         {activeTab === 'settings' && (
           <NewsroomSettingsPanel
             settings={settings}

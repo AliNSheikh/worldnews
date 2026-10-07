@@ -56,7 +56,7 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
   // Translations Map
   const [translations, setTranslations] = useState<Record<LanguageCode, Partial<ArticleTranslation>>>(() => {
     const existing = article?.translations || ({} as any);
-    const langs: LanguageCode[] = ['en', 'ar', 'de', 'es', 'fr'];
+    const langs: LanguageCode[] = ['en'];
     const initial: Record<LanguageCode, Partial<ArticleTranslation>> = {} as any;
 
     langs.forEach((lang) => {
@@ -190,8 +190,9 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (data.translations) {
-          setTranslations(data.translations);
-          setSuccessNotice('🚀 AI SEO Rewrite complete: Optimized for search indexing, keywords, subheadings, and clean standard bold formatting (zero asterisks)!');
+          const english = data.translations.en || data.translations;
+          setTranslations((prev) => ({ ...prev, en: english }));
+          setSuccessNotice('🚀 English SEO rewrite complete: optimized title, metadata, keywords, subheadings, and formatting.');
           setTimeout(() => setSuccessNotice(null), 6000);
         }
       }
@@ -282,7 +283,7 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
       // Verify that at least one language has a title
       const hasAnyTitle = Object.values(translations).some((t) => t.title?.trim());
       if (!hasAnyTitle) {
-        throw new Error('Please enter an article title in at least one language.');
+        throw new Error('Please enter an English article title.');
       }
 
       // If active language has title but EN is blank, auto-copy to EN so system remains cohesive
@@ -729,13 +730,13 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
             )}
           </div>
 
-          {/* Multilingual Content Tabs with One-Language Auto-Translate & SEO Polish */}
+          {/* English Content & SEO */}
           <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
             <div className="bg-slate-100 p-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <Globe className="w-4 h-4 text-slate-600 ms-1" />
                 <span className="text-xs font-bold text-slate-800 me-1">Language:</span>
-                {(['en', 'ar', 'de', 'es', 'fr'] as LanguageCode[]).map((lang) => {
+                {(['en'] as LanguageCode[]).map((lang) => {
                   const hasTitle = !!translations[lang]?.title?.trim();
                   return (
                     <button
@@ -755,19 +756,8 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
                 })}
               </div>
 
-              {/* Action Buttons: Auto-Translate & SEO Polish */}
+              {/* English SEO action */}
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleAutoTranslateAll}
-                  disabled={isTranslating}
-                  title="Write in this language and automatically translate & localize to the other 4 languages"
-                  className="flex items-center gap-1 px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                >
-                  <Sparkles className={`w-3.5 h-3.5 ${isTranslating ? 'animate-spin' : ''}`} />
-                  <span>{isTranslating ? 'Translating...' : 'Auto-Translate to All 5 Editions'}</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={handleSeoPolish}

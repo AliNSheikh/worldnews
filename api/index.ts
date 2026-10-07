@@ -244,10 +244,15 @@ async function handleCoreRoutes(req: any, res: any, pathname: string): Promise<b
   if (pathname === '/api/articles' && method === 'GET') {
     await db.refresh(0);
     const url = new URL(req.url || '/', 'http://localhost');
+    const limitParam = Number(url.searchParams.get('limit') || 0);
+    const offsetParam = Number(url.searchParams.get('offset') || 0);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     sendJson(res, 200, db.getArticles({
       category: url.searchParams.get('category') || undefined,
       status: url.searchParams.get('status') || undefined,
       search: url.searchParams.get('search') || undefined,
+      limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
+      offset: Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : undefined,
     }));
     return true;
   }
