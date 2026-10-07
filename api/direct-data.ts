@@ -211,7 +211,7 @@ function slugify(value: string, fallback: string): string {
 function normalizeArticle(input: Record<string, any>): any {
   const now = new Date().toISOString();
   const id = String(input.id || `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`);
-  const langs = ['en', 'ar', 'de', 'es', 'fr'];
+  const langs = ['en'];
   const incoming = input.translations || {};
   const translations: Record<string, any> = {};
   for (const lang of langs) {
@@ -243,7 +243,7 @@ function normalizeArticle(input: Record<string, any>): any {
     originalSource: input.originalSource || 'World News Desk',
     originalUrl: input.originalUrl || `https://worldnews.org/wire/${id}`,
     originalDescription: input.originalDescription || primary.executiveSummary || primary.title,
-    sourceLanguage: input.sourceLanguage || 'en',
+    sourceLanguage: 'en',
     officialImageUrl: input.officialImageUrl,
     archiveSnapshot: input.archiveSnapshot,
     image: input.image || '',
@@ -289,6 +289,31 @@ export default async function handler(req: any, res: any) {
         if (status) values = values.filter((a) => a.status === status);
         if (search) values = values.filter((a) => JSON.stringify(a).toLowerCase().includes(search));
         values.sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+
+        // Hide legacy duplicate rows from public/admin reads. The crawler also prevents new
+        // duplicates with deterministic IDs, canonical URLs and normalized English titles.
+        const seenUrls = new Set<string>();
+        const seenTitles = new Set<string>();
+        values = values.filter((article) => {
+          let canonical = String(article.originalUrl || '').trim();
+          try {
+            const parsed = new URL(canonical);
+            parsed.hash = '';
+            [...parsed.searchParams.keys()].forEach((key) => {
+              if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) parsed.searchParams.delete(key);
+            });
+            parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+            canonical = parsed.toString();
+          } catch {}
+          const title = String(article?.translations?.en?.title || '')
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .trim();
+          if ((canonical && seenUrls.has(canonical)) || (title && seenTitles.has(title))) return false;
+          if (canonical) seenUrls.add(canonical);
+          if (title) seenTitles.add(title);
+          return true;
+        });
       }
       if (resource === 'categories') values.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
       if (resource === 'settings') return json(res, 200, normalizeSettings(values[0] || {}));
