@@ -614,130 +614,113 @@ async function processSource(
         .map((article) => titleKey(article?.translations?.en?.title || ''))
         .filter(Boolean)
     );
+    const seenCandidateUrls = new Set<string>();
+    const seenCandidateTitles = new Set<string>();
     const candidates = items.filter((item) => {
       if (!isFreshWithinLastHour(item.pubDate)) return false;
       const canonical = canonicalSourceUrl(item.link);
       const headline = titleKey(item.title);
-      return !existingUrls.has(canonical) && !existingTitles.has(headline);
+      if (
+        !canonical ||
+        !headline ||
+        existingUrls.has(canonical) ||
+        existingTitles.has(headline) ||
+        seenCandidateUrls.has(canonical) ||
+        seenCandidateTitles.has(headline)
+      ) {
+        return false;
+      }
+      seenCandidateUrls.add(canonical);
+      seenCandidateTitles.add(headline);
+      return true;
     });
     const batch = candidates;
 
-    for (const item of batch) {
-      try {
-        let page = { description: '', imageUrl: '', articleText: '', author: '' };
-        try {
-          page = extractPage(await fetchText(item.link, 10000), item.link);
-        } catch (error: any) {
-          diagnostics.push(
-            `${item.title}: article-page extraction warning: ${error?.message || error}`
-          );
-        }
-
-        const title = stripHtml(item.title);
-        const description =
-          page.description || item.description || shorten(item.content, 320) || title;
-        const sourceBody =
-          [page.articleText, item.content, item.description]
-            .map((value) => String(value || '').trim())
-            .sort((a, b) => b.length - a.length)[0] || description;
-
-        if (!title || sourceBody.length < 40) {
-          diagnostics.push(`${item.title}: skipped because source text was unavailable.`);
-          continue;
-        }
-
-        const canonicalUrl = canonicalSourceUrl(item.link);
-        const id = `art-${crypto.createHash('sha256').update(canonicalUrl).digest('hex').slice(0, 26)}`;
-        const sourceLanguage = normalizeLang(source.defaultLanguage || source.language);
-        const translations: Record<Lang, any> = Object.fromEntries(
-          LANGS.map((lang) => [lang, emptyTranslation(lang, id)])
-        ) as Record<Lang, any>;
-
-        translations[sourceLanguage] = sourceTranslation(
-          sourceLanguage,
-          id,
-          title,
-          description,
-          sourceBody,
-          title
-        );
-
-        const targets = enabledLanguages.filter((lang) => lang !== sourceLanguage);
-        const translationResults = await Promise.allSettled(
-          targets.map(async (targetLang) => ({
-            targetLang,
-            translated: await translateBundle(
-              sourceLanguage,
-              targetLang,
-              title,
-              description,
-              sourceBody
-            ),
-          }))
-        );
-
-        translationResults.forEach((result, index) => {
-          const targetLang = targets[index];
-          if (result.status === 'fulfilled') {
-            const translated = result.value.translated;
-            translations[targetLang] = sourceTranslation(
-              targetLang,
-              id,
-              translated.title,
-              translated.description,
-              translated.body,
-              translated.title
-            );
-          } else {
+    for (let index = 0; index < batch.length; index += 4) {
+      const chunk = batch.slice(index, index + 4);
+      const settled = await Promise.allSettled(
+        chunk.map(async (item) => {
+          let page = { description: '', imageUrl: '', articleText: '', author: '' };
+          try {
+            page = extractPage(await fetchText(item.link, 10000), item.link);
+          } catch (error: any) {
             diagnostics.push(
-              `${item.title}: ${targetLang.toUpperCase()} translation pending: ${result.reason?.message || result.reason}`
+              `${item.title}: article-page extraction warning: ${error?.message || error}`
             );
           }
-        });
 
-        const image =
-          absoluteUrl(page.imageUrl, item.link) ||
-          absoluteUrl(item.imageUrl, item.link) ||
-          '';
+          const title = stripHtml(item.title);
+          const description =
+            page.description || item.description || shorten(item.content, 320) || title;
+          const sourceBody =
+            [page.articleText, item.content, item.description]
+              .map((value) => String(value || '').trim())
+              .sort((left, right) => right.length - left.length)[0] || description;
 
-        const article = {
-          id,
-          category: source.category || 'world',
-          editorialType: 'original',
-          originalSource: source.name,
-          originalUrl: canonicalUrl,
-          originalDescription: description,
-          sourceLanguage,
-          officialImageUrl: image || undefined,
-          image,
-          imageCredit: image ? source.name : '',
-          imageProvenance: image ? 'Original source/feed metadata' : 'No source image available',
-          imageLicense: image
-            ? 'Source-provided image; publisher licensing terms apply'
-            : 'No external image attached',
-          status: 'published',
-          isBreaking: false,
-          isPinned: false,
-          priority: 5,
-          views: 0,
-          shares: 0,
-          publishedAt: Number.isFinite(new Date(item.pubDate).getTime())
-            ? new Date(item.pubDate).toISOString()
-            : new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          byline: page.author || source.name,
-          translations,
-          hasVideo: false,
-        };
+          if (!title || sourceBody.length < 40) {
+            throw new Error('Source text was unavailable.');
+          }
 
-        await upsert(TABLES.articles, article.id, article);
-        existingArticles.unshift(article);
-        existingUrls.add(canonicalUrl);
-        existingTitles.add(titleKey(title));
-        imported += 1;
-      } catch (error: any) {
-        diagnostics.push(`${item.title}: ${error?.message || error}`);
-      }
+          const canonicalUrl = canonicalSourceUrl(item.link);
+          const id = `art-${crypto
+            .createHash('sha256')
+            .update(canonicalUrl)
+            .digest('hex')
+            .slice(0, 26)}`;
+          const image =
+            absoluteUrl(page.imageUrl, item.link) ||
+            absoluteUrl(item.imageUrl, item.link) ||
+            '';
+
+          const article = {
+            id,
+            category: source.category || 'world',
+            editorialType: 'original',
+            originalSource: source.name,
+            originalUrl: canonicalUrl,
+            originalDescription: description,
+            sourceLanguage: 'en',
+            officialImageUrl: image || undefined,
+            image,
+            imageCredit: image ? source.name : '',
+            imageProvenance: image ? 'Original source/feed metadata' : 'No source image available',
+            imageLicense: image
+              ? 'Source-provided image; publisher licensing terms apply'
+              : 'No external image attached',
+            status: 'published',
+            isBreaking: false,
+            isPinned: false,
+            priority: 5,
+            views: 0,
+            shares: 0,
+            publishedAt: new Date(item.pubDate).toISOString(),
+            updatedAt: new Date().toISOString(),
+            byline: page.author || source.name,
+            translations: {
+              en: sourceTranslation('en', id, title, description, sourceBody, title),
+            },
+            hasVideo: false,
+          };
+
+          await upsert(TABLES.articles, article.id, article);
+          return article;
+        })
+      );
+
+      settled.forEach((result, resultIndex) => {
+        const item = chunk[resultIndex];
+        if (result.status === 'fulfilled') {
+          const article = result.value;
+          existingArticles.unshift(article);
+          existingUrls.add(canonicalSourceUrl(article.originalUrl));
+          existingTitles.add(titleKey(article.translations.en.title));
+          imported += 1;
+        } else {
+          diagnostics.push(
+            `${item.title}: ${result.reason?.message || String(result.reason)}`
+          );
+        }
+      });
     }
 
     const remaining = 0;
@@ -966,34 +949,10 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'translate') {
-      const batch = Math.min(100, Math.max(1, requestedBatch));
-      const translationBackfill = await backfillPendingTranslations(
-        articles,
-        enabledLanguages,
-        batch
-      );
-      const log = await writeLog(
-        'News Discover Translation Backfill',
-        translationBackfill.remaining === 0 ? 'success' : translationBackfill.updated > 0 ? 'warning' : 'failed',
-        translationBackfill.updated,
-        translationBackfill.diagnostics.length
-          ? translationBackfill.diagnostics.slice(0, 5).join(' | ')
-          : translationBackfill.remaining
-          ? `${translationBackfill.remaining} article(s) still require translation.`
-          : null,
-        cycleStartedAt
-      );
-      return json(res, translationBackfill.configured ? 200 : 422, {
-        success: translationBackfill.configured,
-        translatedArticles: translationBackfill.updated,
-        remaining: translationBackfill.remaining,
-        configured: translationBackfill.configured,
-        enabledLanguages,
-        completedAt: log.completedAt,
-        message: translationBackfill.configured
-          ? `Translated ${translationBackfill.updated} article(s); ${translationBackfill.remaining} article(s) remain in the translation backlog.`
-          : 'Automatic translation is ready in code but GOOGLE_TRANSLATE_API_KEY is not configured in Vercel.',
-        diagnostics: translationBackfill.diagnostics.slice(0, 10),
+      return json(res, 410, {
+        success: false,
+        error: 'Automatic translation is disabled because News Discover now publishes English only.',
+        code: 'TRANSLATION_DISABLED',
       });
     }
 
