@@ -89,7 +89,19 @@
     },
     {
       "source": "/sitemap.xml",
-      "destination": "/api/direct-seo?kind=sitemap"
+      "destination": "/api/direct-seo?kind=sitemap-index"
+    },
+    {
+      "source": "/category-sitemap.xml",
+      "destination": "/api/direct-seo?kind=category-sitemap"
+    },
+    {
+      "source": "/page-sitemap.xml",
+      "destination": "/api/direct-seo?kind=page-sitemap"
+    },
+    {
+      "source": "/post-sitemap.xml",
+      "destination": "/api/direct-seo?kind=post-sitemap"
     },
     {
       "source": "/news-sitemap.xml",
