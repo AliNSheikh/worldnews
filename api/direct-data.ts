@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS = {
   siteUrl: '',
   googleSearchConsoleVerification: '',
   googleAnalyticsMeasurementId: '',
+  enabledLanguages: ['en'],
   heroSlides: [],
 };
 
@@ -86,6 +87,8 @@ function normalizeSettings(input: any = {}) {
   }
   merged.aiAssistanceEnabled = false;
   merged.autoIngestEnabled = merged.autoIngestEnabled !== false;
+  merged.defaultLanguage = 'en';
+  merged.enabledLanguages = ['en'];
   return merged;
 }
 
@@ -293,6 +296,12 @@ export default async function handler(req: any, res: any) {
         const found = values.find((v) => v.id === id || (resource === 'articles' && Object.values(v.translations || {}).some((t: any) => t?.slug === id)));
         return json(res, found ? 200 : 404, found || { error: 'Record not found.' });
       }
+      if (resource === 'articles') {
+        const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
+        const requestedLimit = Number(url.searchParams.get('limit') || 50) || 50;
+        const limit = Math.min(500, Math.max(1, requestedLimit));
+        values = values.slice(offset, offset + limit);
+      }
       return json(res, 200, values);
     }
 
@@ -308,8 +317,8 @@ export default async function handler(req: any, res: any) {
           name: String(input.name).trim(),
           rssUrl: String(input.rssUrl).trim(),
           category: input.category || 'world',
-          defaultLanguage: input.defaultLanguage || input.language || 'en',
-          language: input.language || input.defaultLanguage || 'en',
+          defaultLanguage: 'en',
+          language: 'en',
           trustLevel: input.trustLevel || 'verified',
           isActive: input.isActive !== false,
           lastImport: input.lastImport || null,
