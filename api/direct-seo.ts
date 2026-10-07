@@ -9,7 +9,7 @@ const TABLES = {
   categories: 'newsroom_categories',
   settings: 'newsroom_settings',
 };
-const LANGS = ['en', 'ar', 'de', 'es', 'fr'] as const;
+const LANGS = ['en'] as const;
 
 function send(res: any, status: number, type: string, body: string) {
   res.statusCode = status;
