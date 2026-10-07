@@ -17,7 +17,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { SiteSettings, AutomationLog, LanguageCode } from '../../types';
+import { SiteSettings, AutomationLog } from '../../types';
 import { HeroSliderManager } from './HeroSliderManager';
 
 interface NewsroomSettingsPanelProps {
@@ -35,10 +35,6 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
 }) => {
   const [commentMod, setCommentMod] = useState(settings.commentModeration);
   const [autoIngest, setAutoIngest] = useState(settings.autoIngestEnabled);
-  const [enabledLanguages, setEnabledLanguages] = useState<LanguageCode[]>(
-    settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr']
-  );
-
   // Contact Info State
   const [deskEmail, setDeskEmail] = useState(settings.contactInfo.email || '');
   const [deskPhone, setDeskPhone] = useState(settings.contactInfo.phone || '');
@@ -63,7 +59,8 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
         commentModeration: commentMod,
         autoIngestEnabled: autoIngest,
         aiAssistanceEnabled: false,
-        enabledLanguages,
+        defaultLanguage: 'en',
+        enabledLanguages: ['en'],
         contactInfo: {
           ...settings.contactInfo,
           email: deskEmail.trim(),
