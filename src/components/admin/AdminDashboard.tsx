@@ -926,13 +926,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   English-only · canonical URL/title deduplication
                 </div>
               </div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  {crawlerStatus?.translationProviderConfigured
-                    ? `${crawlerStatus?.translationBacklog ?? 0} article(s) pending translation`
-                    : 'Set GOOGLE_TRANSLATE_API_KEY in Vercel'}
-                </div>
-              </div>
-
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold">Next Scheduled Ingest</span>
