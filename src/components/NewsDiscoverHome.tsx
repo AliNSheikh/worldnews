@@ -349,6 +349,15 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
             </section>
           );
         })}
+
+      {visibleCount < sorted.length && visibleCount < 50 && (
+        <div ref={loadMoreRef} className="py-8 flex items-center justify-center" aria-live="polite">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+            <div className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 animate-spin" />
+            Loading more stories…
+          </div>
+        </div>
+      )}
     </div>
   );
 };
