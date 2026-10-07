@@ -36,13 +36,8 @@ export const Footer: React.FC<FooterProps> = ({
   const [footerLangOpen, setFooterLangOpen] = useState(false);
 
   const languages: { code: LanguageCode; label: string; flag: string }[] = [
-    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
     { code: 'en', label: 'English', flag: '🇬🇧' },
-    { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
-    { code: 'es', label: 'Español', flag: '🇪🇸' },
-    { code: 'fr', label: 'Français', flag: '🇫🇷' },
   ];
-
   const currentLangObj = languages.find((l) => l.code === currentLang) || languages[1];
 
   const handleNewsletterSubmit = (e: React.FormEvent) => {
