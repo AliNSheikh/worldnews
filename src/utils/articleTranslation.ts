@@ -1,6 +1,6 @@
 import { Article, ArticleTranslation, LanguageCode } from '../types';
 
-const LANGS: LanguageCode[] = ['en', 'ar', 'de', 'es', 'fr'];
+const LANGS: LanguageCode[] = ['en'];
 
 export function getArticleTranslation(
   article: Article,

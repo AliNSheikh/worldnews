@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { Article, Category, EditorialType, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
@@ -11,6 +11,9 @@ interface CategoryViewProps {
   currentLang: LanguageCode;
   onSelectArticle: (article: Article) => void;
   onSelectCategory: (slug: string) => void;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 export const CategoryView: React.FC<CategoryViewProps> = ({
@@ -20,10 +23,14 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
   currentLang,
   onSelectArticle,
   onSelectCategory,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }) => {
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
   const [filterType, setFilterType] = useState<EditorialType | 'all'>('all');
   const [sortBy, setSortBy] = useState<'latest' | 'popular'>('latest');
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const currentCategory = categories.find((c) => c.slug === categorySlug);
   const categoryName = currentCategory?.names[currentLang] || categorySlug;
@@ -45,8 +52,22 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
     return list;
   }, [articles, categorySlug, filterType, sortBy]);
 
-  const leadArticle = filteredArticles[0];
-  const gridArticles = filteredArticles.slice(1);
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore || isLoadingMore || filteredArticles.length >= 50) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+      },
+      { rootMargin: '600px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, onLoadMore, filteredArticles.length]);
+
+  const visibleArticles = filteredArticles.slice(0, 50);
+  const leadArticle = visibleArticles[0];
+  const gridArticles = visibleArticles.slice(1);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -152,6 +173,15 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
                   onSelectCategory={onSelectCategory}
                 />
               ))}
+            </div>
+          )}
+
+          {hasMore && filteredArticles.length < 50 && (
+            <div ref={loadMoreRef} className="py-8 flex justify-center">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                <span className={`w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 ${isLoadingMore ? 'animate-spin' : ''}`} />
+                {isLoadingMore ? `Loading more ${categoryName} stories…` : 'Scroll for more stories'}
+              </div>
             </div>
           )}
         </div>

@@ -17,27 +17,29 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { SiteSettings, AutomationLog, LanguageCode } from '../../types';
+import { SiteSettings, AutomationLog, Category } from '../../types';
 import { HeroSliderManager } from './HeroSliderManager';
+import { CategorySeoManager } from './CategorySeoManager';
 
 interface NewsroomSettingsPanelProps {
   settings: SiteSettings;
   logs: AutomationLog[];
+  categories: Category[];
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
   onRefreshLogs: () => void;
+  onRefreshCategories: () => void;
 }
 
 export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
   settings,
   logs,
+  categories,
   onUpdateSettings,
   onRefreshLogs,
+  onRefreshCategories,
 }) => {
   const [commentMod, setCommentMod] = useState(settings.commentModeration);
   const [autoIngest, setAutoIngest] = useState(settings.autoIngestEnabled);
-  const [enabledLanguages, setEnabledLanguages] = useState<LanguageCode[]>(
-    settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr']
-  );
 
   // Contact Info State
   const [deskEmail, setDeskEmail] = useState(settings.contactInfo.email || '');
@@ -63,7 +65,8 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
         commentModeration: commentMod,
         autoIngestEnabled: autoIngest,
         aiAssistanceEnabled: false,
-        enabledLanguages,
+        defaultLanguage: 'en',
+        enabledLanguages: ['en'],
         contactInfo: {
           ...settings.contactInfo,
           email: deskEmail.trim(),
@@ -172,57 +175,13 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           </div>
         </div>
 
-        {/* Site Languages & Automatic Translation */}
-        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-4">
-          <div>
-            <h4 className="font-bold text-xs uppercase tracking-wider text-indigo-950">
-              Site Languages & Automatic Article Translation
-            </h4>
-            <p className="text-xs text-indigo-900 mt-1 leading-relaxed">
-              Every newly fetched article is stored in its source language and automatically translated into each enabled language when the server translation provider is available. Language switching uses the matching stored edition instead of showing the source language.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {[
-              ['en', 'English'],
-              ['ar', 'العربية'],
-              ['de', 'Deutsch'],
-              ['es', 'Español'],
-              ['fr', 'Français'],
-            ].map(([code, label]) => {
-              const checked = enabledLanguages.includes(code as LanguageCode);
-              return (
-                <label
-                  key={code}
-                  className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    checked
-                      ? 'bg-white border-indigo-400 text-indigo-950'
-                      : 'bg-white/60 border-indigo-100 text-slate-500'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      setEnabledLanguages((current) => {
-                        if (e.target.checked) {
-                          return current.includes(code as LanguageCode)
-                            ? current
-                            : [...current, code as LanguageCode];
-                        }
-                        const next = current.filter((lang) => lang !== code);
-                        return next.length ? next : current;
-                      });
-                    }}
-                    className="rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-xs font-bold">{label}</span>
-                </label>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-indigo-700">
-            Translation uses Google Cloud Translation when <code>GOOGLE_TRANSLATE_API_KEY</code> is configured in Vercel. Gemini credentials are not used for translation; this keeps article translation independent from Gemini quota.
+        {/* Official language */}
+        <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl">
+          <h4 className="font-bold text-xs uppercase tracking-wider text-indigo-950">
+            Official Site Language
+          </h4>
+          <p className="text-xs text-indigo-900 mt-1 leading-relaxed">
+            News Discover now operates in English only. Automatic translation and alternate-language editions are disabled.
           </p>
         </div>
 
@@ -379,6 +338,8 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           </div>
         </div>
       </form>
+
+      <CategorySeoManager categories={categories} onRefreshCategories={onRefreshCategories} />
 
       <HeroSliderManager settings={settings} onUpdateSettings={onUpdateSettings} />
 

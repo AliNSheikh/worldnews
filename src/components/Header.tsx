@@ -33,11 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isRtl = currentLang === 'ar';
 
   const allLanguages: { code: LanguageCode; label: string; flag: string }[] = [
-    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
     { code: 'en', label: 'English', flag: '🇬🇧' },
-    { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
-    { code: 'es', label: 'Español', flag: '🇪🇸' },
-    { code: 'fr', label: 'Français', flag: '🇫🇷' },
   ];
   const enabledSet = new Set(siteSettings.enabledLanguages || allLanguages.map((item) => item.code));
   const languages = allLanguages.filter((item) => enabledSet.has(item.code));
@@ -94,8 +90,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">{t.editorialGuidelines}</span>
             </button>
 
-            {/* Language Switching Dropdown Button */}
-            <div className="relative border-s border-slate-700 ps-3" ref={langDropdownRef}>
+            {/* English is the only public edition; legacy switcher kept hidden for compatibility. */}
+            <div className="hidden" ref={langDropdownRef}>
               <button
                 id="header-lang-switcher-btn"
                 type="button"

@@ -41,6 +41,7 @@ interface AdminDashboardProps {
   onClose: () => void;
   onRefreshArticles: () => void;
   onRefreshSources: () => void;
+  onRefreshCategories: () => void;
   onRefreshLogs: () => void;
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
   onSelectArticle: (article: Article) => void;
@@ -56,6 +57,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onClose,
   onRefreshArticles,
   onRefreshSources,
+  onRefreshCategories,
   onRefreshLogs,
   onUpdateSettings,
   onSelectArticle,
@@ -95,7 +97,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Automated Hourly Crawler State
   const [crawlerStatus, setCrawlerStatus] = useState<any | null>(null);
   const [isCrawlerRunning, setIsCrawlerRunning] = useState(false);
-  const [isTranslationRunning, setIsTranslationRunning] = useState(false);
   const [crawlerActionMessage, setCrawlerActionMessage] = useState<string | null>(null);
 
   // AI drafting studio state
@@ -125,7 +126,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage('Starting full feed drain with no fixed article cap...');
+    setCrawlerActionMessage('Fetching unique English articles published during the last 60 minutes...');
     let total = 0;
     let cycles = 0;
     let hasMore = true;
@@ -162,36 +163,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setCrawlerActionMessage(`Crawl error after ${cycles} batch(es), ${total} persisted: ${msg}`);
     } finally {
       setIsCrawlerRunning(false);
-    }
-  };
-
-  const handleTranslatePending = async () => {
-    setIsTranslationRunning(true);
-    setCrawlerActionMessage('Translating pending article editions...');
-    try {
-      const res = await fetch('/api/crawler/translate-pending?batch=20', { method: 'POST' });
-      const raw = await res.text();
-      let data: any = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch {
-        data = { error: raw || `HTTP ${res.status}` };
-      }
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || data.error || `Translation failed with HTTP ${res.status}.`);
-      }
-      setCrawlerActionMessage(
-        data.message ||
-          `Translated ${data.translatedArticles || 0} article(s); ${data.remaining || 0} remain.`
-      );
-      onRefreshArticles();
-      onRefreshLogs();
-      fetchCrawlerStatus();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setCrawlerActionMessage(`Translation error: ${msg}`);
-    } finally {
-      setIsTranslationRunning(false);
     }
   };
 
@@ -615,7 +586,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-3 px-4 text-start">Original Source & Link</th>
                       <th className="py-3 px-4 text-start">Type</th>
                       <th className="py-3 px-4 text-start">Status</th>
-                      <th className="py-3 px-4 text-start">Editions</th>
+                      <th className="py-3 px-4 text-start">Language</th>
                       <th className="py-3 px-4 text-start">Views</th>
                       <th className="py-3 px-4 text-start">Published</th>
                       <th className="py-3 px-4 text-end">Actions</th>
@@ -631,7 +602,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ) : (
                       filteredArticles.map((art) => {
                         const enTitle = art.translations.en?.title || Object.values(art.translations)[0]?.title;
-                        const transCount = Object.keys(art.translations).length;
+                        const transCount = art.translations.en?.title ? 1 : 0;
 
                         return (
                           <tr key={art.id} className="hover:bg-slate-50/70 transition-colors">
@@ -757,7 +728,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <td className="py-3 px-4 font-mono text-[11px]">
                               <span className="inline-flex items-center gap-1 text-slate-600">
                                 <Globe className="w-3 h-3 text-slate-400" />
-                                {transCount}/5
+                                {transCount}/1
                               </span>
                             </td>
 
@@ -864,27 +835,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, SEO metadata, and translations for enabled site languages.
+                    An Appwrite scheduled function starts automatically every hour. It fetches unique English RSS/Atom stories published during the previous 60 minutes and persists them to Appwrite with source images and SEO metadata.
                   </p>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 self-start sm:self-center">
                   <button
                     onClick={handleRunCrawlerNow}
-                    disabled={isCrawlerRunning || isTranslationRunning}
+                    disabled={isCrawlerRunning}
                     className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <RefreshCw className={`w-4 h-4 ${isCrawlerRunning ? 'animate-spin' : ''}`} />
                     <span>{isCrawlerRunning ? 'Crawling Wire Feeds...' : 'Run Hourly Crawl Cycle Now'}</span>
                   </button>
-                  <button
-                    onClick={handleTranslatePending}
-                    disabled={isCrawlerRunning || isTranslationRunning || !crawlerStatus?.translationProviderConfigured}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    <Globe className={`w-4 h-4 ${isTranslationRunning ? 'animate-pulse' : ''}`} />
-                    <span>{isTranslationRunning ? 'Translating...' : 'Translate Pending Articles'}</span>
-                  </button>
+
                 </div>
               </div>
 
@@ -954,19 +918,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
                 <div className="flex items-center justify-between text-slate-500 mb-2">
-                  <span className="text-xs font-semibold">Translation Provider</span>
-                  <Globe className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-semibold">Freshness Window</span>
+                  <Clock className="w-4 h-4 text-red-600" />
                 </div>
-                <div className={`text-sm font-bold ${crawlerStatus?.translationProviderConfigured ? 'text-emerald-700' : 'text-amber-700'}`}>
-                  {crawlerStatus?.translationProviderConfigured ? 'Google Cloud Translation' : 'Not configured'}
-                </div>
+                <div className="text-sm font-bold text-slate-900">Last 60 minutes only</div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  {crawlerStatus?.translationProviderConfigured
-                    ? `${crawlerStatus?.translationBacklog ?? 0} article(s) pending translation`
-                    : 'Set GOOGLE_TRANSLATE_API_KEY in Vercel'}
+                  English-only · canonical URL/title deduplication
                 </div>
               </div>
-
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
                 <div className="flex items-center justify-between text-slate-500 mb-2">
                   <span className="text-xs font-semibold">Next Scheduled Ingest</span>
@@ -1087,7 +1046,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <NewsroomSettingsPanel
             settings={settings}
             logs={logs}
+            categories={categories}
             onUpdateSettings={onUpdateSettings}
+            onRefreshCategories={onRefreshCategories}
             onRefreshLogs={onRefreshLogs}
           />
         )}

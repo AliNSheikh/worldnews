@@ -53,6 +53,10 @@ export function updatePageSEO(options: {
     }
   }
 
+  if (category?.seoKeywords?.length) {
+    setMeta('keywords', category.seoKeywords.join(', '));
+  }
+
   // Google News and Search Indexing Directives
   setMeta('robots', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
   setMeta('googlebot', 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
@@ -107,7 +111,7 @@ export function updatePageSEO(options: {
   const existingHreflangs = document.querySelectorAll('link[rel="alternate"][hreflang]');
   existingHreflangs.forEach((el) => el.remove());
 
-  const languages: LanguageCode[] = ['ar', 'en', 'de', 'es', 'fr'];
+  const languages: LanguageCode[] = ['en'];
   languages.forEach((code) => {
     if (
       article &&

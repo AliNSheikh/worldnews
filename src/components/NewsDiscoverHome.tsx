@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Clock, TrendingUp } from 'lucide-react';
 import { Article, Category, HeroSlide, LanguageCode } from '../types';
 import { ArticleCard } from './ArticleCard';
@@ -14,6 +14,9 @@ interface NewsDiscoverHomeProps {
   promotionalSlides: HeroSlide[];
   onSelectArticle: (article: Article) => void;
   onSelectCategory: (slug: string) => void;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 function sectionLabel(lang: LanguageCode, key: 'main' | 'latest' | 'more' | 'mostRead') {
@@ -66,22 +69,54 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
   promotionalSlides,
   onSelectArticle,
   onSelectCategory,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }) => {
-  const sorted = useMemo(
-    () =>
-      [...articles]
-        .filter((article) => article.status === 'published')
-        .sort(
-          (a, b) =>
-            new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-        ),
-    [articles]
-  );
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const main = sorted[0];
-  const supporting = sorted.slice(1, 5);
-  const latest = sorted.slice(5, 21);
-  const mobileMore = sorted.slice(21, 45);
+  const sorted = useMemo(() => {
+    const chronological = [...articles]
+      .filter((article) => article.status === 'published')
+      .sort(
+        (a, b) =>
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      )
+      .slice(0, 50);
+
+    // Keep the newest story first, then avoid long runs of the same category when
+    // another fresh category is available.
+    if (chronological.length < 3) return chronological;
+    const diversified: Article[] = [chronological[0]];
+    const pool = chronological.slice(1);
+    while (pool.length) {
+      const previousCategory = diversified[diversified.length - 1]?.category;
+      const alternateIndex = pool.findIndex(
+        (article) => article.category !== previousCategory
+      );
+      const index = alternateIndex >= 0 ? alternateIndex : 0;
+      diversified.push(pool.splice(index, 1)[0]);
+    }
+    return diversified;
+  }, [articles]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore || isLoadingMore || sorted.length >= 50) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+      },
+      { rootMargin: '600px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, onLoadMore, sorted.length]);
+
+  const visible = sorted;
+  const main = visible[0];
+  const supporting = visible.slice(1, 5);
+  const latest = visible.slice(5);
 
   return (
     <div className="max-w-[1440px] mx-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-6 space-y-6 sm:space-y-9">
@@ -236,33 +271,11 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
         </aside>
       </section>
 
-      {mobileMore.length > 0 && (
-        <section className="lg:hidden">
-          <div className="border-b-2 border-slate-900 pb-2 mb-3">
-            <h2 className="font-black text-lg text-slate-950">
-              {sectionLabel(currentLang, 'more')}
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
-            {mobileMore.map((article) => (
-              <ArticleCard
-                key={article.id}
-                article={article}
-                currentLang={currentLang}
-                variant="standard"
-                onSelect={onSelectArticle}
-                onSelectCategory={onSelectCategory}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
       {categories
         .filter((category) => category.isVisible)
         .slice(0, 8)
         .map((category) => {
-          const categoryArticles = sorted
+          const categoryArticles = visible
             .filter((article) => article.category === category.slug)
             .slice(0, 7);
           if (!categoryArticles.length) return null;
@@ -310,6 +323,15 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
             </section>
           );
         })}
+
+      {hasMore && sorted.length < 50 && (
+        <div ref={loadMoreRef} className="py-8 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+            <span className={`w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 ${isLoadingMore ? 'animate-spin' : ''}`} />
+            {isLoadingMore ? 'Loading more stories…' : 'Scroll for more stories'}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

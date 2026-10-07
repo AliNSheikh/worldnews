@@ -12,7 +12,7 @@ const TABLES = {
   logs: 'newsroom_logs',
   settings: 'newsroom_settings',
 };
-const LANGS = ['en', 'ar', 'de', 'es', 'fr'] as const;
+const LANGS = ['en'] as const;
 type Lang = (typeof LANGS)[number];
 
 type FeedItem = {
@@ -214,9 +214,7 @@ function parseFeed(xml: string): FeedItem[] {
       return {
         title: stripHtml(tag(block, ['title'])),
         link: link.trim(),
-        pubDate:
-          tag(block, ['pubDate', 'published', 'updated', 'dc:date']) ||
-          new Date().toISOString(),
+        pubDate: tag(block, ['pubDate', 'published', 'updated', 'dc:date']),
         description: stripHtml(rawDescription),
         content: stripHtml(rawContent || rawDescription),
         imageUrl,
@@ -530,6 +528,31 @@ function configuredLanguages(settingsRows: any[]): Lang[] {
   return langs.length ? langs : [...LANGS];
 }
 
+function canonicalSourceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    [...url.searchParams.keys()].forEach((key) => {
+      if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) url.searchParams.delete(key);
+    });
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+function titleKey(value: string): string {
+  return stripHtml(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function isFreshWithinLastHour(pubDate: string): boolean {
+  const time = new Date(pubDate).getTime();
+  if (!Number.isFinite(time)) return false;
+  const now = Date.now();
+  return time >= now - 60 * 60 * 1000 && time <= now + 5 * 60 * 1000;
+}
+
 async function writeLog(
   source: string,
   status: 'success' | 'failed' | 'warning',
@@ -560,9 +583,15 @@ async function processSource(
 ) {
   const diagnostics: string[] = [];
   let imported = 0;
-  const failedUrls = new Set<string>(
-    Array.isArray(source.failedUrls) ? source.failedUrls.filter(Boolean) : []
-  );
+  const rawSourceLanguage = String(source.defaultLanguage || source.language || 'en').toLowerCase().slice(0, 2);
+  if (rawSourceLanguage !== 'en') {
+    return {
+      imported: 0,
+      diagnostics: [`Skipped ${source.name}: News Discover is English-only and this source is configured as ${rawSourceLanguage.toUpperCase()}.`],
+      parsedItems: 0,
+      remaining: 0,
+    };
+  }
 
   try {
     const xml = await fetchText(
@@ -576,138 +605,132 @@ async function processSource(
     if (!items.length) throw new Error('Feed returned no parseable RSS/Atom items.');
 
     const existingUrls = new Set(
-      existingArticles.map((article) => String(article.originalUrl || '')).filter(Boolean)
+      existingArticles
+        .map((article) => canonicalSourceUrl(String(article.originalUrl || '')))
+        .filter(Boolean)
     );
-    const candidates = items.filter(
-      (item) => !existingUrls.has(item.link) && !failedUrls.has(item.link)
+    const existingTitles = new Set(
+      existingArticles
+        .map((article) => titleKey(article?.translations?.en?.title || ''))
+        .filter(Boolean)
     );
-    const batch = candidates.slice(0, Math.max(1, maxNew));
+    const seenCandidateUrls = new Set<string>();
+    const seenCandidateTitles = new Set<string>();
+    const candidates = items.filter((item) => {
+      if (!isFreshWithinLastHour(item.pubDate)) return false;
+      const canonical = canonicalSourceUrl(item.link);
+      const headline = titleKey(item.title);
+      if (
+        !canonical ||
+        !headline ||
+        existingUrls.has(canonical) ||
+        existingTitles.has(headline) ||
+        seenCandidateUrls.has(canonical) ||
+        seenCandidateTitles.has(headline)
+      ) {
+        return false;
+      }
+      seenCandidateUrls.add(canonical);
+      seenCandidateTitles.add(headline);
+      return true;
+    });
+    const batch = candidates;
 
-    for (const item of batch) {
-      try {
-        let page = { description: '', imageUrl: '', articleText: '', author: '' };
-        try {
-          page = extractPage(await fetchText(item.link, 10000), item.link);
-        } catch (error: any) {
-          diagnostics.push(
-            `${item.title}: article-page extraction warning: ${error?.message || error}`
-          );
-        }
-
-        const title = stripHtml(item.title);
-        const description =
-          page.description || item.description || shorten(item.content, 320) || title;
-        const sourceBody =
-          [page.articleText, item.content, item.description]
-            .map((value) => String(value || '').trim())
-            .sort((a, b) => b.length - a.length)[0] || description;
-
-        if (!title || sourceBody.length < 40) {
-          failedUrls.add(item.link);
-          diagnostics.push(`${item.title}: skipped because source text was unavailable.`);
-          continue;
-        }
-
-        const id = `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-        const sourceLanguage = normalizeLang(source.defaultLanguage || source.language);
-        const translations: Record<Lang, any> = Object.fromEntries(
-          LANGS.map((lang) => [lang, emptyTranslation(lang, id)])
-        ) as Record<Lang, any>;
-
-        translations[sourceLanguage] = sourceTranslation(
-          sourceLanguage,
-          id,
-          title,
-          description,
-          sourceBody,
-          title
-        );
-
-        const targets = enabledLanguages.filter((lang) => lang !== sourceLanguage);
-        const translationResults = await Promise.allSettled(
-          targets.map(async (targetLang) => ({
-            targetLang,
-            translated: await translateBundle(
-              sourceLanguage,
-              targetLang,
-              title,
-              description,
-              sourceBody
-            ),
-          }))
-        );
-
-        translationResults.forEach((result, index) => {
-          const targetLang = targets[index];
-          if (result.status === 'fulfilled') {
-            const translated = result.value.translated;
-            translations[targetLang] = sourceTranslation(
-              targetLang,
-              id,
-              translated.title,
-              translated.description,
-              translated.body,
-              translated.title
-            );
-          } else {
+    for (let index = 0; index < batch.length; index += 4) {
+      const chunk = batch.slice(index, index + 4);
+      const settled = await Promise.allSettled(
+        chunk.map(async (item) => {
+          let page = { description: '', imageUrl: '', articleText: '', author: '' };
+          try {
+            page = extractPage(await fetchText(item.link, 10000), item.link);
+          } catch (error: any) {
             diagnostics.push(
-              `${item.title}: ${targetLang.toUpperCase()} translation pending: ${result.reason?.message || result.reason}`
+              `${item.title}: article-page extraction warning: ${error?.message || error}`
             );
           }
-        });
 
-        const image =
-          absoluteUrl(page.imageUrl, item.link) ||
-          absoluteUrl(item.imageUrl, item.link) ||
-          '';
+          const title = stripHtml(item.title);
+          const description =
+            page.description || item.description || shorten(item.content, 320) || title;
+          const sourceBody =
+            [page.articleText, item.content, item.description]
+              .map((value) => String(value || '').trim())
+              .sort((left, right) => right.length - left.length)[0] || description;
 
-        const article = {
-          id,
-          category: source.category || 'world',
-          editorialType: 'original',
-          originalSource: source.name,
-          originalUrl: item.link,
-          originalDescription: description,
-          sourceLanguage,
-          officialImageUrl: image || undefined,
-          image,
-          imageCredit: image ? source.name : '',
-          imageProvenance: image ? 'Original source/feed metadata' : 'No source image available',
-          imageLicense: image
-            ? 'Source-provided image; publisher licensing terms apply'
-            : 'No external image attached',
-          status: 'published',
-          isBreaking: false,
-          isPinned: false,
-          priority: 5,
-          views: 0,
-          shares: 0,
-          publishedAt: Number.isFinite(new Date(item.pubDate).getTime())
-            ? new Date(item.pubDate).toISOString()
-            : new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          byline: page.author || source.name,
-          translations,
-          hasVideo: false,
-        };
+          if (!title || sourceBody.length < 40) {
+            throw new Error('Source text was unavailable.');
+          }
 
-        await upsert(TABLES.articles, article.id, article);
-        existingArticles.unshift(article);
-        existingUrls.add(item.link);
-        imported += 1;
-      } catch (error: any) {
-        failedUrls.add(item.link);
-        diagnostics.push(`${item.title}: ${error?.message || error}`);
-      }
+          const canonicalUrl = canonicalSourceUrl(item.link);
+          const id = `art-${crypto
+            .createHash('sha256')
+            .update(canonicalUrl)
+            .digest('hex')
+            .slice(0, 26)}`;
+          const image =
+            absoluteUrl(page.imageUrl, item.link) ||
+            absoluteUrl(item.imageUrl, item.link) ||
+            '';
+
+          const article = {
+            id,
+            category: source.category || 'world',
+            editorialType: 'original',
+            originalSource: source.name,
+            originalUrl: canonicalUrl,
+            originalDescription: description,
+            sourceLanguage: 'en',
+            officialImageUrl: image || undefined,
+            image,
+            imageCredit: image ? source.name : '',
+            imageProvenance: image ? 'Original source/feed metadata' : 'No source image available',
+            imageLicense: image
+              ? 'Source-provided image; publisher licensing terms apply'
+              : 'No external image attached',
+            status: 'published',
+            isBreaking: false,
+            isPinned: false,
+            priority: 5,
+            views: 0,
+            shares: 0,
+            publishedAt: new Date(item.pubDate).toISOString(),
+            updatedAt: new Date().toISOString(),
+            byline: page.author || source.name,
+            translations: {
+              en: sourceTranslation('en', id, title, description, sourceBody, title),
+            },
+            hasVideo: false,
+          };
+
+          await upsert(TABLES.articles, article.id, article);
+          return article;
+        })
+      );
+
+      settled.forEach((result, resultIndex) => {
+        const item = chunk[resultIndex];
+        if (result.status === 'fulfilled') {
+          const article = result.value;
+          existingArticles.unshift(article);
+          existingUrls.add(canonicalSourceUrl(article.originalUrl));
+          existingTitles.add(titleKey(article.translations.en.title));
+          imported += 1;
+        } else {
+          diagnostics.push(
+            `${item.title}: ${result.reason?.message || String(result.reason)}`
+          );
+        }
+      });
     }
 
-    const remaining = Math.max(0, candidates.length - batch.length);
+    const remaining = 0;
     const updated = {
       ...source,
       lastImport: new Date().toISOString(),
       lastError: diagnostics.length ? diagnostics.slice(-5).join(' | ') : null,
       articlesCount: Number(source.articlesCount || 0) + imported,
-      failedUrls: [...failedUrls].slice(-200),
+      defaultLanguage: 'en',
+      language: 'en',
     };
     await upsert(TABLES.sources, source.id, updated);
 
@@ -717,100 +740,6 @@ async function processSource(
     await upsert(TABLES.sources, source.id, { ...source, lastError: message });
     return { imported: 0, diagnostics: [message], parsedItems: 0, remaining: 0 };
   }
-}
-
-async function backfillPendingTranslations(
-  articles: any[],
-  enabledLanguages: Lang[],
-  maxArticles = 2
-) {
-  const translationConfigured = Boolean(process.env.GOOGLE_TRANSLATE_API_KEY);
-  if (!translationConfigured) {
-    return {
-      updated: 0,
-      remaining: articles.filter((article) =>
-        enabledLanguages.some(
-          (lang) => !article?.translations?.[lang]?.title || article?.translations?.[lang]?.translationStatus !== 'complete'
-        )
-      ).length,
-      diagnostics: ['Translation provider is not configured.'],
-      configured: false,
-    };
-  }
-
-  const pending = articles.filter((article) =>
-    enabledLanguages.some(
-      (lang) =>
-        !article?.translations?.[lang]?.title ||
-        article?.translations?.[lang]?.translationStatus !== 'complete'
-    )
-  );
-  const batch = pending.slice(0, Math.max(1, maxArticles));
-  const diagnostics: string[] = [];
-  let updated = 0;
-
-  for (const article of batch) {
-    const sourceLanguage = normalizeLang(article.sourceLanguage || 'en');
-    const source =
-      article?.translations?.[sourceLanguage] ||
-      LANGS.map((lang) => article?.translations?.[lang]).find((item) => item?.title);
-
-    if (!source?.title) {
-      diagnostics.push(`${article.id}: missing source-language translation data.`);
-      continue;
-    }
-
-    let changed = false;
-    for (const targetLang of enabledLanguages) {
-      if (targetLang === sourceLanguage) continue;
-      const current = article?.translations?.[targetLang];
-      if (current?.title && current.translationStatus === 'complete') continue;
-
-      try {
-        const translated = await translateBundle(
-          sourceLanguage,
-          targetLang,
-          source.title,
-          source.executiveSummary || article.originalDescription || source.title,
-          source.structuredBody || source.executiveSummary || article.originalDescription || source.title
-        );
-        article.translations[targetLang] = sourceTranslation(
-          targetLang,
-          article.id,
-          translated.title,
-          translated.description,
-          translated.body,
-          translated.title
-        );
-        changed = true;
-      } catch (error: any) {
-        diagnostics.push(
-          `${article.id}: ${targetLang.toUpperCase()} backfill failed: ${error?.message || error}`
-        );
-      }
-    }
-
-    if (changed) {
-      article.updatedAt = new Date().toISOString();
-      await upsert(TABLES.articles, article.id, article);
-      updated += 1;
-    }
-  }
-
-  const failedStillPending = batch.filter((article) =>
-    enabledLanguages.some(
-      (lang) =>
-        !article?.translations?.[lang]?.title ||
-        article?.translations?.[lang]?.translationStatus !== 'complete'
-    )
-  ).length;
-
-  return {
-    updated,
-    remaining: Math.max(0, pending.length - batch.length) + failedStillPending,
-    diagnostics,
-    configured: true,
-  };
 }
 
 export default async function handler(req: any, res: any) {
@@ -882,19 +811,14 @@ export default async function handler(req: any, res: any) {
         ingestionMode: 'source-direct',
         appwriteConfigured: Boolean(process.env.APPWRITE_API_KEY),
         geminiRequired: false,
-        translationProviderConfigured: Boolean(process.env.GOOGLE_TRANSLATE_API_KEY),
-        translationProvider: process.env.GOOGLE_TRANSLATE_API_KEY
-          ? 'google-cloud-translation-v2'
-          : 'not-configured',
-        translationBacklog: articles.filter((article) =>
-          enabledLanguages.some(
-            (lang) =>
-              !article?.translations?.[lang]?.title ||
-              article?.translations?.[lang]?.translationStatus !== 'complete'
-          )
-        ).length,
-        enabledLanguages,
-        scheduler: 'appwrite-hourly-function',
+        translationProviderConfigured: false,
+        translationProvider: 'disabled-english-only',
+        translationBacklog: 0,
+        enabledLanguages: ['en'],
+        scheduler: 'hourly-background-scheduler',
+        englishOnly: true,
+        freshnessWindowMinutes: 60,
+        duplicatePolicy: 'canonical-url + normalized-title + deterministic-row-id',
         sourcesCount: sources.length,
         activeSourcesCount: sources.filter((source) => source.isActive !== false).length,
         articlesCount: articles.length,
@@ -925,34 +849,10 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'translate') {
-      const batch = Math.min(100, Math.max(1, requestedBatch));
-      const translationBackfill = await backfillPendingTranslations(
-        articles,
-        enabledLanguages,
-        batch
-      );
-      const log = await writeLog(
-        'News Discover Translation Backfill',
-        translationBackfill.remaining === 0 ? 'success' : translationBackfill.updated > 0 ? 'warning' : 'failed',
-        translationBackfill.updated,
-        translationBackfill.diagnostics.length
-          ? translationBackfill.diagnostics.slice(0, 5).join(' | ')
-          : translationBackfill.remaining
-          ? `${translationBackfill.remaining} article(s) still require translation.`
-          : null,
-        cycleStartedAt
-      );
-      return json(res, translationBackfill.configured ? 200 : 422, {
-        success: translationBackfill.configured,
-        translatedArticles: translationBackfill.updated,
-        remaining: translationBackfill.remaining,
-        configured: translationBackfill.configured,
-        enabledLanguages,
-        completedAt: log.completedAt,
-        message: translationBackfill.configured
-          ? `Translated ${translationBackfill.updated} article(s); ${translationBackfill.remaining} article(s) remain in the translation backlog.`
-          : 'Automatic translation is ready in code but GOOGLE_TRANSLATE_API_KEY is not configured in Vercel.',
-        diagnostics: translationBackfill.diagnostics.slice(0, 10),
+      return json(res, 410, {
+        success: false,
+        error: 'Automatic translation is disabled because News Discover now publishes English only.',
+        code: 'TRANSLATION_DISABLED',
       });
     }
 
@@ -1012,22 +912,8 @@ export default async function handler(req: any, res: any) {
       results.push({ sourceId: source.id, source: source.name, ...result });
     }
 
-    const translationBackfill = await backfillPendingTranslations(
-      articles,
-      enabledLanguages,
-      Math.max(1, requestedBatch)
-    );
-    const hasMoreTranslations =
-      translationBackfill.configured &&
-      translationBackfill.remaining > 0 &&
-      (translationBackfill.updated > 0 || translationBackfill.diagnostics.length === 0);
-    const hasMore =
-      results.some((result) => Number(result.remaining || 0) > 0) ||
-      hasMoreTranslations;
-    const errors = [
-      ...results.flatMap((result) => result.diagnostics || []),
-      ...translationBackfill.diagnostics,
-    ];
+    const hasMore = false;
+    const errors = results.flatMap((result) => result.diagnostics || []);
     const log = await writeLog(
       action === 'import'
         ? `Single Source Ingest (${sourceId})`
@@ -1045,12 +931,13 @@ export default async function handler(req: any, res: any) {
       count: total,
       newArticlesCount: total,
       persisted: total,
-      translatedArticles: translationBackfill.updated,
-      translationBacklog: translationBackfill.remaining,
+      translatedArticles: 0,
+      translationBacklog: 0,
       hasMore,
       batchSize: requestedBatch,
-      ingestionMode: 'source-direct-multilingual',
-      enabledLanguages,
+      ingestionMode: 'english-source-direct-60m',
+      enabledLanguages: ['en'],
+      freshnessWindowMinutes: 60,
       latestFetch: {
         startedAt: log.startedAt,
         completedAt: log.completedAt,
@@ -1060,7 +947,7 @@ export default async function handler(req: any, res: any) {
       results,
       message:
         total > 0
-          ? `Crawler persisted ${total} article(s) in this batch. ${hasMore ? 'More unseen feed items remain and the scheduler will continue automatically.' : 'All currently available feed items are drained.'}`
+          ? `Crawler persisted ${total} unique English article(s) published within the last 60 minutes.`
           : hasMore
           ? 'This batch did not persist an article, but more unseen feed items remain for the next batch.'
           : errors.length
