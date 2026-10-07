@@ -90,8 +90,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">{t.editorialGuidelines}</span>
             </button>
 
-            {/* Language Switching Dropdown Button */}
-            <div className="relative border-s border-slate-700 ps-3" ref={langDropdownRef}>
+            {/* English is the only public edition; legacy switcher kept hidden for compatibility. */}
+            <div className="hidden" ref={langDropdownRef}>
               <button
                 id="header-lang-switcher-btn"
                 type="button"
