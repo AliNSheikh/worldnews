@@ -11,6 +11,9 @@ interface CategoryViewProps {
   currentLang: LanguageCode;
   onSelectArticle: (article: Article) => void;
   onSelectCategory: (slug: string) => void;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 export const CategoryView: React.FC<CategoryViewProps> = ({
@@ -20,11 +23,13 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
   currentLang,
   onSelectArticle,
   onSelectCategory,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }) => {
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
   const [filterType, setFilterType] = useState<EditorialType | 'all'>('all');
   const [sortBy, setSortBy] = useState<'latest' | 'popular'>('latest');
-  const [visibleCount, setVisibleCount] = useState(12);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const currentCategory = categories.find((c) => c.slug === categorySlug);
@@ -48,25 +53,19 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
   }, [articles, categorySlug, filterType, sortBy]);
 
   useEffect(() => {
-    setVisibleCount(12);
-  }, [categorySlug, filterType, sortBy]);
-
-  useEffect(() => {
     const node = loadMoreRef.current;
-    if (!node || visibleCount >= filteredArticles.length || visibleCount >= 50) return;
+    if (!node || !hasMore || isLoadingMore || filteredArticles.length >= 50) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisibleCount((current) => Math.min(filteredArticles.length, current + 9, 50));
-        }
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
       },
-      { rootMargin: '500px 0px' }
+      { rootMargin: '600px 0px' }
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [visibleCount, filteredArticles.length]);
+  }, [hasMore, isLoadingMore, onLoadMore, filteredArticles.length]);
 
-  const visibleArticles = filteredArticles.slice(0, Math.min(visibleCount, 50));
+  const visibleArticles = filteredArticles.slice(0, 50);
   const leadArticle = visibleArticles[0];
   const gridArticles = visibleArticles.slice(1);
 
@@ -177,11 +176,11 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
             </div>
           )}
 
-          {visibleCount < Math.min(filteredArticles.length, 50) && (
+          {hasMore && filteredArticles.length < 50 && (
             <div ref={loadMoreRef} className="py-8 flex justify-center">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                <span className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 animate-spin" />
-                Loading more {categoryName} stories…
+                <span className={`w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 ${isLoadingMore ? 'animate-spin' : ''}`} />
+                {isLoadingMore ? `Loading more ${categoryName} stories…` : 'Scroll for more stories'}
               </div>
             </div>
           )}
