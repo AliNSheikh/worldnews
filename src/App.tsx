@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Article, Category, LanguageCode, NewsSource, SiteSettings, AutomationLog } from './types';
 import { TRANSLATIONS } from './data/translations';
 import {
@@ -35,6 +35,13 @@ export function App() {
   // Data Store States
   const [articles, setArticles] = useState<Article[]>([]);
   const [isArticlesLoading, setIsArticlesLoading] = useState(true);
+  const [isLoadingMoreArticles, setIsLoadingMoreArticles] = useState(false);
+  const [publicHasMore, setPublicHasMore] = useState(true);
+  const publicOffsetRef = useRef(0);
+  const publicHasMoreRef = useRef(true);
+  const publicLoadingRef = useRef(false);
+  const publicContextRef = useRef('all');
+  const PUBLIC_PAGE_SIZE = 10;
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [sources, setSources] = useState<NewsSource[]>(INITIAL_NEWS_SOURCES);
   const [settings, setSettings] = useState<SiteSettings>(INITIAL_SITE_SETTINGS);
@@ -47,24 +54,60 @@ export function App() {
     if (typeof window !== 'undefined') localStorage.removeItem('worldnews_lang');
   }, []);
 
-  // Fetch live articles and settings from server
-  const fetchArticles = useCallback(async (limit = 50) => {
-    setIsArticlesLoading(true);
+  // Fetch live articles in small pages so the browser does not download 50 full
+  // article bodies on first paint. Public feeds stop at 50 loaded stories.
+  const fetchPublicArticles = useCallback(async (category = 'all', reset = false) => {
+    if (publicLoadingRef.current) return;
+    if (!reset && !publicHasMoreRef.current) return;
+
+    const offset = reset ? 0 : publicOffsetRef.current;
+    const remaining = 50 - offset;
+    if (remaining <= 0) {
+      publicHasMoreRef.current = false;
+      setPublicHasMore(false);
+      return;
+    }
+
+    const limit = Math.min(PUBLIC_PAGE_SIZE, remaining);
+    publicLoadingRef.current = true;
+    publicContextRef.current = category;
+    if (reset) setIsArticlesLoading(true);
+    else setIsLoadingMoreArticles(true);
+
     try {
-      const res = await fetch(`/api/articles?status=published&limit=${Math.min(limit, 500)}&offset=0`, {
+      const params = new URLSearchParams({
+        status: 'published',
+        limit: String(limit),
+        offset: String(offset),
+      });
+      if (category !== 'all') params.set('category', category);
+
+      const res = await fetch(`/api/articles?${params.toString()}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setArticles(Array.isArray(data) ? data : []);
-      } else {
-        setArticles([]);
-      }
+      const data = res.ok ? await res.json() : [];
+      const page: Article[] = Array.isArray(data) ? data : [];
+
+      setArticles((current) => {
+        if (reset) return page;
+        const map = new Map(current.map((article) => [article.id, article]));
+        page.forEach((article) => map.set(article.id, article));
+        return [...map.values()];
+      });
+
+      publicOffsetRef.current = offset + page.length;
+      const hasMore = page.length === limit && publicOffsetRef.current < 50;
+      publicHasMoreRef.current = hasMore;
+      setPublicHasMore(hasMore);
     } catch {
-      setArticles([]);
+      if (reset) setArticles([]);
+      publicHasMoreRef.current = false;
+      setPublicHasMore(false);
     } finally {
+      publicLoadingRef.current = false;
       setIsArticlesLoading(false);
+      setIsLoadingMoreArticles(false);
     }
   }, []);
 
@@ -78,23 +121,6 @@ export function App() {
         const data = await res.json();
         setArticles(Array.isArray(data) ? data : []);
       }
-    } catch {}
-  }, []);
-
-  const fetchCategoryArticles = useCallback(async (category: string) => {
-    try {
-      const res = await fetch(`/api/articles?status=published&category=${encodeURIComponent(category)}&limit=50&offset=0`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!Array.isArray(data)) return;
-      setArticles((current) => {
-        const map = new Map(current.map((article) => [article.id, article]));
-        data.forEach((article: Article) => map.set(article.id, article));
-        return [...map.values()];
-      });
     } catch {}
   }, []);
 
@@ -139,12 +165,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    fetchArticles(50);
+    fetchPublicArticles('all', true);
     fetchCategories();
     fetchSources();
     fetchSettings();
     fetchLogs();
-  }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
+  }, [fetchPublicArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
 
   useEffect(() => {
     if (isAdminAuthenticated) fetchAllArticlesForAdmin();
@@ -157,45 +183,70 @@ export function App() {
     }
   }, [settings.googleAnalyticsMeasurementId]);
 
-  // Handle URL parsing on load & browser history
+  // Handle URL parsing on load & browser history. Direct article URLs are resolved
+  // from Appwrite even when the article is older than the currently loaded feed page.
   useEffect(() => {
-    const handleUrlChange = () => {
+    const handleUrlChange = async () => {
       const path = window.location.pathname;
       if (path === '/admin') {
         setIsAdminOpen(true);
         setActiveArticle(null);
         return;
       }
+
       const parts = path.split('/').filter(Boolean);
       if (parts[0] && ['ar', 'de', 'es', 'fr'].includes(parts[0])) {
         parts[0] = 'en';
         window.history.replaceState({}, '', '/' + parts.join('/'));
       }
-      if (parts[0] === 'en') {
-        if (parts[1] === 'news' && parts[3]) {
-          const slug = parts[3];
-          const found = articles.find((a) =>
-            Object.values(a.translations).some((t) => t.slug === slug)
-          );
-          if (found) {
-            setActiveArticle(found);
-            setSelectedCategory('all');
-            setIsAdminOpen(false);
-            return;
-          }
-        } else if (parts[1] === 'category' && parts[2]) {
-          setSelectedCategory(parts[2]);
-          setActiveArticle(null);
+
+      if (parts[0] === 'en' && parts[1] === 'news' && parts[3]) {
+        const slug = parts[3];
+        const found = articles.find((article) => article.translations?.en?.slug === slug);
+        if (found) {
+          setActiveArticle(found);
+          setSelectedCategory('all');
           setIsAdminOpen(false);
           return;
         }
+        try {
+          const response = await fetch(`/api/articles/${encodeURIComponent(slug)}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+          if (response.ok) {
+            const article = await response.json();
+            setArticles((current) =>
+              current.some((item) => item.id === article.id) ? current : [...current, article]
+            );
+            setActiveArticle(article);
+            setSelectedCategory('all');
+            setIsAdminOpen(false);
+          }
+        } catch {}
+        return;
       }
+
+      if (parts[0] === 'en' && parts[1] === 'category' && parts[2]) {
+        const category = parts[2];
+        setSelectedCategory(category);
+        setActiveArticle(null);
+        setIsAdminOpen(false);
+        if (publicContextRef.current !== category) {
+          fetchPublicArticles(category, true);
+        }
+        return;
+      }
+
+      setSelectedCategory('all');
+      setActiveArticle(null);
+      if (publicContextRef.current !== 'all') fetchPublicArticles('all', true);
     };
 
     window.addEventListener('popstate', handleUrlChange);
     handleUrlChange();
     return () => window.removeEventListener('popstate', handleUrlChange);
-  }, [articles]);
+  }, [articles, fetchPublicArticles]);
 
   // Keyboard shortcut: Cmd+K / Ctrl+K opens search
   useEffect(() => {
@@ -254,10 +305,10 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (slug === 'all') {
       window.history.pushState({}, '', '/en');
-      fetchArticles(50);
+      fetchPublicArticles('all', true);
     } else {
       window.history.pushState({}, '', `/en/category/${slug}`);
-      fetchCategoryArticles(slug);
+      fetchPublicArticles(slug, true);
     }
   };
 
@@ -267,6 +318,11 @@ export function App() {
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     window.history.pushState({}, '', '/en');
+    fetchPublicArticles('all', true);
+  };
+
+  const handleLoadMoreArticles = () => {
+    fetchPublicArticles(selectedCategory, false);
   };
 
   const handleUpdateSettings = async (newSettings: Partial<SiteSettings>) => {
@@ -343,7 +399,9 @@ export function App() {
         onClose={() => {
           setIsAdminOpen(false);
           setIsAdminAuthenticated(false);
-          window.history.pushState({}, '', '/');
+          setSelectedCategory('all');
+          window.history.pushState({}, '', '/en');
+          fetchPublicArticles('all', true);
         }}
         onRefreshArticles={fetchAllArticlesForAdmin}
         onRefreshSources={fetchSources}
@@ -414,6 +472,9 @@ export function App() {
             currentLang={currentLang}
             onSelectArticle={handleSelectArticle}
             onSelectCategory={handleSelectCategory}
+            hasMore={publicHasMore}
+            isLoadingMore={isLoadingMoreArticles}
+            onLoadMore={handleLoadMoreArticles}
           />
         ) : (
           /* FRONT PAGE (HOMEPAGE) */
@@ -424,6 +485,9 @@ export function App() {
             promotionalSlides={promotionalHeroSlides}
             onSelectArticle={handleSelectArticle}
             onSelectCategory={handleSelectCategory}
+            hasMore={publicHasMore}
+            isLoadingMore={isLoadingMoreArticles}
+            onLoadMore={handleLoadMoreArticles}
           />
         )}
       </main>
