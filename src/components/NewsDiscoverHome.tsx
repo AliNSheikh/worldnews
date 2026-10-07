@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, TrendingUp } from 'lucide-react';
 import { Article, Category, HeroSlide, LanguageCode } from '../types';
 import { ArticleCard } from './ArticleCard';
@@ -14,6 +14,28 @@ interface NewsDiscoverHomeProps {
   promotionalSlides: HeroSlide[];
   onSelectArticle: (article: Article) => void;
   onSelectCategory: (slug: string) => void;
+}
+
+function diversifyByCategory(articles: Article[]): Article[] {
+  const queues = new Map<string, Article[]>();
+  for (const article of articles) {
+    const queue = queues.get(article.category) || [];
+    queue.push(article);
+    queues.set(article.category, queue);
+  }
+  const result: Article[] = [];
+  while (result.length < articles.length) {
+    let added = false;
+    for (const queue of queues.values()) {
+      const article = queue.shift();
+      if (article) {
+        result.push(article);
+        added = true;
+      }
+    }
+    if (!added) break;
+  }
+  return result;
 }
 
 function sectionLabel(lang: LanguageCode, key: 'main' | 'latest' | 'more' | 'mostRead') {
@@ -67,21 +89,38 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
   onSelectArticle,
   onSelectCategory,
 }) => {
-  const sorted = useMemo(
-    () =>
-      [...articles]
-        .filter((article) => article.status === 'published')
-        .sort(
-          (a, b) =>
-            new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-        ),
-    [articles]
-  );
+  const [visibleCount, setVisibleCount] = useState(12);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const main = sorted[0];
-  const supporting = sorted.slice(1, 5);
-  const latest = sorted.slice(5, 21);
-  const mobileMore = sorted.slice(21, 45);
+  const sorted = useMemo(() => {
+    const newest = [...articles]
+      .filter((article) => article.status === 'published')
+      .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
+      .slice(0, 50);
+    return diversifyByCategory(newest);
+  }, [articles]);
+
+  useEffect(() => {
+    setVisibleCount(Math.min(12, Math.max(sorted.length, 1)));
+  }, [sorted.length]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || visibleCount >= sorted.length) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((count) => Math.min(count + 10, sorted.length, 50));
+      }
+    }, { rootMargin: '300px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, sorted.length]);
+
+  const visibleArticles = sorted.slice(0, visibleCount);
+  const main = visibleArticles[0];
+  const supporting = visibleArticles.slice(1, 5);
+  const latest = visibleArticles.slice(5, 21);
+  const mobileMore = visibleArticles.slice(21, 45);
 
   return (
     <div className="max-w-[1440px] mx-auto px-2.5 sm:px-5 lg:px-7 py-3 sm:py-6 space-y-6 sm:space-y-9">
@@ -179,7 +218,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
               {sectionLabel(currentLang, 'latest')}
             </h2>
             <span className="text-[10px] sm:text-xs text-slate-400">
-              {sorted.length} stories
+              {Math.min(sorted.length, 50)} stories
             </span>
           </div>
 
@@ -227,7 +266,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
               </h2>
             </div>
             <TrendingList
-              articles={sorted}
+              articles={visibleArticles}
               currentLang={currentLang}
               onSelect={onSelectArticle}
             />
@@ -262,7 +301,7 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
         .filter((category) => category.isVisible)
         .slice(0, 8)
         .map((category) => {
-          const categoryArticles = sorted
+          const categoryArticles = visibleArticles
             .filter((article) => article.category === category.slug)
             .slice(0, 7);
           if (!categoryArticles.length) return null;
