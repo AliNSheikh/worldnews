@@ -3,6 +3,7 @@ export const maxDuration = 30;
 const ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const PROJECT_ID = '6ac4bf0d00093b81fef7';
 const DATABASE_ID = 'worldnews';
+const DEFAULT_ORIGIN = 'https://www.newsdiscover.org';
 const TABLES = {
   articles: 'newsroom_articles',
   categories: 'newsroom_categories',
@@ -92,11 +93,22 @@ function xml(value: unknown): string {
 }
 
 function originFrom(req: any, settings: any): string {
-  const configured = String(settings?.siteUrl || process.env.APP_URL || '').trim().replace(/\/$/, '');
+  const requestHost = String(req.headers?.['x-forwarded-host'] || req.headers?.host || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+
+  if (requestHost === 'newsdiscover.org' || requestHost === 'www.newsdiscover.org') {
+    return DEFAULT_ORIGIN;
+  }
+
+  const configured = String(settings?.siteUrl || process.env.APP_URL || '')
+    .trim()
+    .replace(/\/$/, '');
   if (/^https?:\/\//i.test(configured)) return configured;
+
   const proto = String(req.headers?.['x-forwarded-proto'] || 'https').split(',')[0].trim();
-  const host = String(req.headers?.['x-forwarded-host'] || req.headers?.host || '').split(',')[0].trim();
-  return host ? `${proto}://${host}` : 'https://newsdiscover.example';
+  return requestHost ? `${proto}://${requestHost}` : DEFAULT_ORIGIN;
 }
 
 function availableTranslations(article: any) {
@@ -127,24 +139,41 @@ function absoluteImage(value: unknown, origin: string): string {
   }
 }
 
-function buildSitemap(origin: string, articles: any[], categories: any[]) {
-  const urls: string[] = [];
+function iso(value: unknown, fallback = new Date()): string {
+  const date = new Date(String(value || ''));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : fallback.toISOString();
+}
+
+function latestArticleModified(articles: any[]): string {
+  const timestamps = articles
+    .filter((article) => article?.status === 'published')
+    .flatMap((article) => [article?.updatedAt, article?.publishedAt])
+    .map((value) => new Date(value || 0).getTime())
+    .filter(Number.isFinite);
+
+  return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : new Date().toISOString();
+}
+
+function buildSitemapIndex(origin: string, articles: any[]) {
+  const articleLastmod = latestArticleModified(articles);
   const now = new Date().toISOString();
+  const entries = [
+    { loc: `${origin}/post-sitemap.xml`, lastmod: articleLastmod },
+    { loc: `${origin}/page-sitemap.xml`, lastmod: now },
+    { loc: `${origin}/category-sitemap.xml`, lastmod: now },
+    { loc: `${origin}/news-sitemap.xml`, lastmod: articleLastmod },
+  ];
 
-  for (const lang of LANGS) {
-    urls.push(
-      `<url><loc>${xml(`${origin}/${lang}`)}</loc><lastmod>${now}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>`
-    );
-  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries
+    .map(
+      (entry) =>
+        `  <sitemap>\n    <loc>${xml(entry.loc)}</loc>\n    <lastmod>${xml(entry.lastmod)}</lastmod>\n  </sitemap>`
+    )
+    .join('\n')}\n</sitemapindex>`;
+}
 
-  for (const category of categories) {
-    if (category?.isActive === false || !category?.slug) continue;
-    for (const lang of LANGS) {
-      urls.push(
-        `<url><loc>${xml(`${origin}/${lang}/category/${category.slug}`)}</loc><lastmod>${now}</lastmod><changefreq>hourly</changefreq><priority>0.8</priority></url>`
-      );
-    }
-  }
+function buildPostSitemap(origin: string, articles: any[]) {
+  const urls: string[] = [];
 
   for (const article of articles) {
     if (article?.status !== 'published') continue;
@@ -157,14 +186,53 @@ function buildSitemap(origin: string, articles: any[], categories: any[]) {
           )}</image:title></image:image>`
         : '';
       urls.push(
-        `<url><loc>${xml(loc)}</loc><lastmod>${xml(
-          article.updatedAt || article.publishedAt || now
+        `  <url><loc>${xml(loc)}</loc><lastmod>${xml(
+          iso(article.updatedAt || article.publishedAt)
         )}</lastmod><changefreq>hourly</changefreq><priority>0.9</priority>${imageXml}</url>`
       );
     }
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.join(
+    '\n'
+  )}\n</urlset>`;
+}
+
+function buildPageSitemap(origin: string) {
+  const now = new Date().toISOString();
+  const urls = [
+    `  <url><loc>${xml(`${origin}/`)}</loc><lastmod>${xml(
+      now
+    )}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>`,
+    ...LANGS.map(
+      (lang) =>
+        `  <url><loc>${xml(`${origin}/${lang}`)}</loc><lastmod>${xml(
+          now
+        )}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>`
+    ),
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join(
+    '\n'
+  )}\n</urlset>`;
+}
+
+function buildCategorySitemap(origin: string, categories: any[]) {
+  const now = new Date().toISOString();
+  const urls: string[] = [];
+
+  for (const category of categories) {
+    if (category?.isVisible === false || category?.isActive === false || !category?.slug) continue;
+    for (const lang of LANGS) {
+      urls.push(
+        `  <url><loc>${xml(`${origin}/${lang}/category/${category.slug}`)}</loc><lastmod>${xml(
+          now
+        )}</lastmod><changefreq>hourly</changefreq><priority>0.8</priority></url>`
+      );
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join(
     '\n'
   )}\n</urlset>`;
 }
@@ -186,7 +254,7 @@ function buildNewsSitemap(origin: string, articles: any[], settings: any) {
         'News Discover';
       const loc = `${origin}/${lang}/news/${article.category || 'world'}/${translation.slug}`;
       rows.push(
-        `<url><loc>${xml(loc)}</loc><news:news><news:publication><news:name>${xml(
+        `  <url><loc>${xml(loc)}</loc><news:news><news:publication><news:name>${xml(
           siteName
         )}</news:name><news:language>${xml(lang)}</news:language></news:publication><news:publication_date>${xml(
           publishedAt.toISOString()
@@ -213,8 +281,7 @@ function buildRss(origin: string, articles: any[], settings: any, requestedLang:
     )
     .slice(0, 50)) {
     const translations = availableTranslations(article);
-    const selected =
-      translations.find(([lang]) => lang === requested) || translations[0];
+    const selected = translations.find(([lang]) => lang === requested) || translations[0];
     if (!selected) continue;
     const [lang, translation] = selected;
     const link = `${origin}/${lang}/news/${article.category || 'world'}/${translation.slug}`;
@@ -245,7 +312,7 @@ function buildRss(origin: string, articles: any[], settings: any, requestedLang:
 export default async function handler(req: any, res: any) {
   try {
     const url = new URL(req.url || '/', 'https://local');
-    const kind = String(url.searchParams.get('kind') || 'sitemap');
+    const kind = String(url.searchParams.get('kind') || 'sitemap-index');
     const [articles, categories, settingsRows] = await Promise.all([
       listPayloads(TABLES.articles),
       listPayloads(TABLES.categories),
@@ -259,7 +326,24 @@ export default async function handler(req: any, res: any) {
         res,
         200,
         'text/plain; charset=utf-8',
-        `User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ${origin}/sitemap.xml\nSitemap: ${origin}/news-sitemap.xml\n`
+        `User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ${origin}/sitemap.xml\n`
+      );
+    }
+
+    if (kind === 'post-sitemap') {
+      return send(res, 200, 'application/xml; charset=utf-8', buildPostSitemap(origin, articles));
+    }
+
+    if (kind === 'page-sitemap') {
+      return send(res, 200, 'application/xml; charset=utf-8', buildPageSitemap(origin));
+    }
+
+    if (kind === 'category-sitemap') {
+      return send(
+        res,
+        200,
+        'application/xml; charset=utf-8',
+        buildCategorySitemap(origin, categories)
       );
     }
 
@@ -285,7 +369,7 @@ export default async function handler(req: any, res: any) {
       res,
       200,
       'application/xml; charset=utf-8',
-      buildSitemap(origin, articles, categories)
+      buildSitemapIndex(origin, articles)
     );
   } catch (error: any) {
     console.error('[direct-seo]', error);
