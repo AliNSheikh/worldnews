@@ -52,12 +52,34 @@ const state: CrawlerState = {
 
 const FEED_TIMEOUT_MS = Math.max(3000, Number(process.env.CRAWLER_FEED_TIMEOUT_MS || 8000));
 const MAX_ARTICLES_PER_RUN = Math.max(1, Math.min(10, Number(process.env.CRAWLER_MAX_ARTICLES_PER_RUN || 3)));
-const MAX_CANDIDATES_PER_SOURCE = Math.max(1, Math.min(5, Number(process.env.CRAWLER_MAX_ITEMS_PER_SOURCE || 2)));
+const MAX_CANDIDATES_PER_SOURCE = Math.max(1, Math.min(10, Number(process.env.CRAWLER_MAX_ITEMS_PER_SOURCE || 5)));
+const FRESH_ARTICLE_WINDOW_MS = 60 * 60 * 1000;
+
+function normalizeArticleUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.hash = '';
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid'].forEach((key) =>
+      url.searchParams.delete(key)
+    );
+    url.searchParams.sort();
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return String(rawUrl || '').trim().replace(/#.*$/, '').replace(/\/$/, '');
+  }
+}
+
+function isFreshFeedItem(item: ParsedFeedItem): boolean {
+  const timestamp = itemTimestamp(item);
+  if (!timestamp) return false;
+  const age = Date.now() - timestamp;
+  return age >= 0 && age <= FRESH_ARTICLE_WINDOW_MS;
+}
 
 function initScrapedUrls() {
   state.scrapedUrls.clear();
   db.articles.forEach((article) => {
-    if (article.originalUrl) state.scrapedUrls.add(article.originalUrl);
+    if (article.originalUrl) state.scrapedUrls.add(normalizeArticleUrl(article.originalUrl));
   });
 }
 
@@ -67,7 +89,11 @@ function itemTimestamp(item: ParsedFeedItem): number {
 }
 
 function isAlreadyImported(url: string): boolean {
-  return state.scrapedUrls.has(url) || db.articles.some((article) => article.originalUrl === url);
+  const normalized = normalizeArticleUrl(url);
+  return (
+    state.scrapedUrls.has(normalized) ||
+    db.articles.some((article) => normalizeArticleUrl(article.originalUrl || '') === normalized)
+  );
 }
 
 function sourceDiagnostic(source: NewsSource): CrawlerSourceDiagnostic {
@@ -107,7 +133,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
       scrapedSources: [],
       sourceDiagnostics: [],
       persistenceProvider: provider,
-      message: 'Crawler stopped: GEMINI_API_KEY is missing. AI-generated multilingual editions cannot be created safely without it.',
+      message: 'Crawler stopped: GEMINI_API_KEY is missing. The English editorial edition cannot be generated safely without it.',
     };
   }
 
@@ -162,7 +188,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
           }
 
           const candidates = items
-            .filter((item) => item.link && !isAlreadyImported(item.link))
+            .filter((item) => item.link && isFreshFeedItem(item) && !isAlreadyImported(item.link))
             .sort((a, b) => itemTimestamp(b) - itemTimestamp(a))
             .slice(0, MAX_CANDIDATES_PER_SOURCE);
 
@@ -210,9 +236,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
           sourceArticleText
         );
 
-        const allTranslationsComplete = Object.values(draft.translations).every(
-          (translation) => translation.translationStatus === 'complete'
-        );
+        const englishComplete = draft.translations.en?.translationStatus === 'complete';
 
         const videoCandidate = officialMeta.videoUrl || item.videoUrl || null;
         const videoMeta = videoCandidate ? resolveVideoMetadata(videoCandidate) : null;
@@ -261,7 +285,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
           imageCredit: finalImageCredit,
           imageProvenance: finalImageProvenance,
           imageLicense: finalImageLicense,
-          status: allTranslationsComplete ? 'published' : 'review',
+          status: englishComplete ? 'published' : 'review',
           isBreaking: false,
           isPinned: false,
           priority: 5,
@@ -278,12 +302,12 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
         };
 
         db.createArticle(newArticle);
-        state.scrapedUrls.add(item.link);
+        state.scrapedUrls.add(normalizeArticleUrl(item.link));
         addedCount++;
         diagnostic.imported++;
         state.totalScrapedCount++;
 
-        if (allTranslationsComplete) publishedCount++;
+        if (englishComplete) publishedCount++;
         else reviewCount++;
 
         db.updateSource(source.id, {
@@ -390,6 +414,7 @@ export function getCrawlerStatus() {
     totalScrapedCount: state.totalScrapedCount,
     isCurrentlyRunning: state.isCurrentlyRunning,
     scrapedUrlsCount: state.scrapedUrls.size,
+    freshArticleWindowMinutes: 60,
     maxArticlesPerRun: MAX_ARTICLES_PER_RUN,
     persistence: db.getPersistenceStatus(),
   };
