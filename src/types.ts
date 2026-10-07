@@ -15,6 +15,9 @@ export interface Category {
   inNavigation: boolean;
   color?: string;
   iconName?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string[];
 }
 
 export interface FAQItem {
