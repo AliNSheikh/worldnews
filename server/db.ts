@@ -223,7 +223,7 @@ class NewsroomDatabase {
     };
   }
 
-  public getArticles(filters?: { category?: string; status?: string; search?: string }): Article[] {
+  public getArticles(filters?: { category?: string; status?: string; search?: string; limit?: number; offset?: number }): Article[] {
     let list = [...this.articles];
     if (filters?.status) {
       list = list.filter((a) => a.status === filters.status);
@@ -233,16 +233,21 @@ class NewsroomDatabase {
     }
     if (filters?.search) {
       const q = filters.search.toLowerCase();
-      list = list.filter((a) =>
-        Object.values(a.translations).some(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            t.executiveSummary.toLowerCase().includes(q) ||
-            t.keywords.some((k) => k.toLowerCase().includes(q))
-        ) || a.originalSource.toLowerCase().includes(q)
-      );
+      list = list.filter((a) => {
+        const t = a.translations.en;
+        return Boolean(
+          (t &&
+            (t.title.toLowerCase().includes(q) ||
+              t.executiveSummary.toLowerCase().includes(q) ||
+              t.keywords.some((k) => k.toLowerCase().includes(q)))) ||
+            a.originalSource.toLowerCase().includes(q)
+        );
+      });
     }
-    return list.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+    const sorted = list.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+    const offset = Math.max(0, Number(filters?.offset || 0));
+    const limit = filters?.limit ? Math.max(1, Math.min(100, Number(filters.limit))) : undefined;
+    return limit ? sorted.slice(offset, offset + limit) : sorted.slice(offset);
   }
 
   public getArticleById(id: string): Article | undefined {
@@ -250,14 +255,14 @@ class NewsroomDatabase {
   }
 
   public getArticleBySlug(slug: string): Article | undefined {
-    return this.articles.find((a) => Object.values(a.translations).some((t) => t.slug === slug));
+    return this.articles.find((a) => a.translations.en?.slug === slug);
   }
 
   public createArticle(articleInput: Partial<Article>): Article {
     const now = new Date().toISOString();
     const id = articleInput.id?.trim() || `art-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const incomingTranslations = (articleInput.translations || {}) as any;
-    const languageCodes = ['en', 'ar', 'de', 'es', 'fr'] as const;
+    const languageCodes = ['en'] as const;
 
     if (articleInput.originalUrl && this.articles.some((a) => a.originalUrl === articleInput.originalUrl)) {
       throw new Error(`Article with original URL '${articleInput.originalUrl}' already exists.`);
@@ -265,7 +270,7 @@ class NewsroomDatabase {
 
     const hasAnyTitle = languageCodes.some((lang) => String(incomingTranslations?.[lang]?.title || '').trim());
     if (!hasAnyTitle) {
-      throw new Error('At least one language edition must contain an article title.');
+      throw new Error('The English edition must contain an article title.');
     }
 
     const translations = {} as Article['translations'];
