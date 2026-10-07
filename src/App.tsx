@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Article, Category, LanguageCode, NewsSource, SiteSettings, AutomationLog } from './types';
-import { TRANSLATIONS } from './data/translations';
 import {
-  INITIAL_ARTICLES,
   INITIAL_CATEGORIES,
   INITIAL_NEWS_SOURCES,
   INITIAL_SITE_SETTINGS,
@@ -24,15 +22,7 @@ import { NewsDiscoverHome } from './components/NewsDiscoverHome';
 
 export function App() {
   // Navigation & View States
-  const [currentLang, setCurrentLang] = useState<LanguageCode>(() => {
-    if (typeof window !== 'undefined') {
-      const pathLang = window.location.pathname.split('/')[1] as LanguageCode;
-      if (['ar', 'en', 'de', 'es', 'fr'].includes(pathLang)) return pathLang;
-      const stored = localStorage.getItem('worldnews_lang') as LanguageCode;
-      if (['ar', 'en', 'de', 'es', 'fr'].includes(stored)) return stored;
-    }
-    return 'en';
-  });
+  const currentLang: LanguageCode = 'en';
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeArticle, setActiveArticle] = useState<Article | null>(null);
@@ -42,31 +32,35 @@ export function App() {
   const [isCharterOpen, setIsCharterOpen] = useState(false);
 
   // Data Store States
-  const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [isLoadingArticles, setIsLoadingArticles] = useState(true);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [sources, setSources] = useState<NewsSource[]>(INITIAL_NEWS_SOURCES);
   const [settings, setSettings] = useState<SiteSettings>(INITIAL_SITE_SETTINGS);
   const [logs, setLogs] = useState<AutomationLog[]>(INITIAL_AUTOMATION_LOGS);
 
-  // Sync Language direction (RTL / LTR)
+  // English is the single public edition.
   useEffect(() => {
-    document.documentElement.lang = currentLang;
-    document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('worldnews_lang', currentLang);
-    }
-  }, [currentLang]);
+    document.documentElement.lang = 'en';
+    document.documentElement.dir = 'ltr';
+    localStorage.removeItem('worldnews_lang');
+  }, []);
 
   // Fetch live articles and settings from server
   const fetchArticles = useCallback(async () => {
+    setIsLoadingArticles(true);
     try {
-      const res = await fetch('/api/articles');
+      const res = await fetch('/api/articles?status=published&limit=50', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        setArticles(data);
+        setArticles(Array.isArray(data) ? data : []);
+      } else {
+        setArticles([]);
       }
     } catch {
-      // Keep initial data if offline or dev startup
+      setArticles([]);
+    } finally {
+      setIsLoadingArticles(false);
     }
   }, []);
 
@@ -118,20 +112,6 @@ export function App() {
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
 
-  // Keep the active edition aligned with languages enabled in the control panel.
-  useEffect(() => {
-    const enabled = settings.enabledLanguages || ['en', 'ar', 'de', 'es', 'fr'];
-    if (!enabled.includes(currentLang)) {
-      const fallback =
-        (enabled.includes(settings.defaultLanguage) && settings.defaultLanguage) ||
-        enabled[0] ||
-        'en';
-      setCurrentLang(fallback as LanguageCode);
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin')) {
-        window.history.replaceState({}, '', `/${fallback}`);
-      }
-    }
-  }, [settings.enabledLanguages, settings.defaultLanguage, currentLang]);
 
   // Initialize Google Analytics when measurement ID is configured
   useEffect(() => {
@@ -150,25 +130,22 @@ export function App() {
         return;
       }
       const parts = path.split('/').filter(Boolean);
-      if (parts[0] && ['ar', 'en', 'de', 'es', 'fr'].includes(parts[0])) {
-        setCurrentLang(parts[0] as LanguageCode);
-        if (parts[1] === 'news' && parts[3]) {
-          const slug = parts[3];
-          const found = articles.find((a) =>
-            Object.values(a.translations).some((t) => t.slug === slug)
-          );
-          if (found) {
-            setActiveArticle(found);
-            setSelectedCategory('all');
-            setIsAdminOpen(false);
-            return;
-          }
-        } else if (parts[1] === 'category' && parts[2]) {
-          setSelectedCategory(parts[2]);
-          setActiveArticle(null);
+      // Preserve old /en/* links by normalizing them to the English-only routes.
+      const normalized = parts[0] === 'en' ? parts.slice(1) : parts;
+      if (normalized[0] === 'news' && normalized[2]) {
+        const slug = normalized[2];
+        const found = articles.find((a) => a.translations.en?.slug === slug);
+        if (found) {
+          setActiveArticle(found);
+          setSelectedCategory('all');
           setIsAdminOpen(false);
           return;
         }
+      } else if (normalized[0] === 'category' && normalized[1]) {
+        setSelectedCategory(normalized[1]);
+        setActiveArticle(null);
+        setIsAdminOpen(false);
+        return;
       }
     };
 
@@ -194,19 +171,19 @@ export function App() {
     if (!activeArticle && !isAdminOpen) {
       if (selectedCategory === 'all') {
         updatePageSEO({
-          title: settings.names[currentLang] || 'News Discover',
-          description: settings.descriptions[currentLang] || '24/7 International Digital Newsroom',
-          lang: currentLang,
-          canonicalPath: `/${currentLang}`,
+          title: settings.names.en || 'News Discover',
+          description: settings.descriptions.en || '24/7 International Digital Newsroom',
+          lang: 'en',
+          canonicalPath: '/',
           siteSettings: settings,
         });
       } else {
         const catObj = categories.find((c) => c.slug === selectedCategory);
         updatePageSEO({
-          title: `${catObj?.names[currentLang] || selectedCategory} News`,
-          description: catObj?.descriptions[currentLang] || `Latest reports in ${selectedCategory}`,
-          lang: currentLang,
-          canonicalPath: `/${currentLang}/category/${selectedCategory}`,
+          title: catObj?.seoTitle || `${catObj?.names.en || selectedCategory} News`,
+          description: catObj?.seoDescription || catObj?.descriptions.en || `Latest reports in ${selectedCategory}`,
+          lang: 'en',
+          canonicalPath: `/category/${selectedCategory}`,
           category: catObj,
           siteSettings: settings,
         });
@@ -215,47 +192,16 @@ export function App() {
   }, [activeArticle, isAdminOpen, selectedCategory, currentLang, settings, categories]);
 
   // User Actions
-  const handleLanguageChange = (lang: LanguageCode) => {
-    const from = currentLang;
-
-    if (activeArticle) {
-      const trans = getArticleTranslation(activeArticle, lang);
-      const effectiveLang = hasCompleteTranslation(activeArticle, lang)
-        ? lang
-        : trans.language;
-      setCurrentLang(effectiveLang);
-      analytics.trackLanguageChange(from, effectiveLang);
-      window.history.pushState(
-        {},
-        '',
-        `/${effectiveLang}/news/${activeArticle.category}/${trans.slug}`
-      );
-      return;
-    }
-
-    setCurrentLang(lang);
-    analytics.trackLanguageChange(from, lang);
-    if (selectedCategory !== 'all') {
-      window.history.pushState({}, '', `/${lang}/category/${selectedCategory}`);
-    } else {
-      window.history.pushState({}, '', `/${lang}`);
-    }
+  const handleLanguageChange = (_lang: LanguageCode) => {
+    // Multi-language navigation is intentionally disabled. English is the only edition.
   };
 
   const handleSelectArticle = (article: Article) => {
     setActiveArticle(article);
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    const trans = getArticleTranslation(article, currentLang);
-    const effectiveLang = hasCompleteTranslation(article, currentLang)
-      ? currentLang
-      : trans.language;
-    if (effectiveLang !== currentLang) setCurrentLang(effectiveLang);
-    window.history.pushState(
-      {},
-      '',
-      `/${effectiveLang}/news/${article.category}/${trans.slug}`
-    );
+    const trans = article.translations.en || getArticleTranslation(article, 'en');
+    window.history.pushState({}, '', `/news/${article.category}/${trans.slug}`);
   };
 
   const handleSelectCategory = (slug: string) => {
@@ -264,9 +210,9 @@ export function App() {
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (slug === 'all') {
-      window.history.pushState({}, '', `/${currentLang}`);
+      window.history.pushState({}, '', '/');
     } else {
-      window.history.pushState({}, '', `/${currentLang}/category/${slug}`);
+      window.history.pushState({}, '', `/category/${slug}`);
     }
   };
 
@@ -275,7 +221,7 @@ export function App() {
     setSelectedCategory('all');
     setIsAdminOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.history.pushState({}, '', `/${currentLang}`);
+    window.history.pushState({}, '', '/');
   };
 
   const handleUpdateSettings = async (newSettings: Partial<SiteSettings>) => {
@@ -324,7 +270,6 @@ export function App() {
     [settings.heroSlides]
   );
 
-  const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
 
   // Render CMS newsroom view (protected by AdminLoginGate)
   if (isAdminOpen) {
@@ -355,6 +300,7 @@ export function App() {
           window.history.pushState({}, '', '/');
         }}
         onRefreshArticles={fetchArticles}
+        onRefreshCategories={fetchCategories}
         onRefreshSources={fetchSources}
         onRefreshLogs={fetchLogs}
         onUpdateSettings={handleUpdateSettings}
@@ -387,7 +333,14 @@ export function App() {
 
       {/* Body View Container */}
       <main className="flex-1">
-        {activeArticle ? (
+        {isLoadingArticles ? (
+          <div className="min-h-[55vh] flex items-center justify-center bg-white">
+            <div className="flex flex-col items-center gap-3 text-slate-600" role="status" aria-live="polite">
+              <div className="w-10 h-10 rounded-full border-4 border-slate-200 border-t-red-600 animate-spin" />
+              <p className="text-sm font-semibold">Loading the latest articles…</p>
+            </div>
+          </div>
+        ) : activeArticle ? (
           /* ARTICLE DETAIL VIEW */
           <ArticleView
             article={activeArticle}
