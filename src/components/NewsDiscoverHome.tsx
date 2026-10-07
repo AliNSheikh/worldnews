@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Clock, TrendingUp } from 'lucide-react';
 import { Article, Category, HeroSlide, LanguageCode } from '../types';
 import { ArticleCard } from './ArticleCard';
@@ -14,6 +14,9 @@ interface NewsDiscoverHomeProps {
   promotionalSlides: HeroSlide[];
   onSelectArticle: (article: Article) => void;
   onSelectCategory: (slug: string) => void;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 function sectionLabel(lang: LanguageCode, key: 'main' | 'latest' | 'more' | 'mostRead') {
@@ -66,8 +69,10 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
   promotionalSlides,
   onSelectArticle,
   onSelectCategory,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }) => {
-  const [visibleCount, setVisibleCount] = useState(12);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const sorted = useMemo(() => {
@@ -96,25 +101,19 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
   }, [articles]);
 
   useEffect(() => {
-    setVisibleCount(12);
-  }, [articles]);
-
-  useEffect(() => {
     const node = loadMoreRef.current;
-    if (!node || visibleCount >= sorted.length) return;
+    if (!node || !hasMore || isLoadingMore || sorted.length >= 50) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisibleCount((current) => Math.min(sorted.length, current + 8, 50));
-        }
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
       },
-      { rootMargin: '500px 0px' }
+      { rootMargin: '600px 0px' }
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [visibleCount, sorted.length]);
+  }, [hasMore, isLoadingMore, onLoadMore, sorted.length]);
 
-  const visible = sorted.slice(0, visibleCount);
+  const visible = sorted;
   const main = visible[0];
   const supporting = visible.slice(1, 5);
   const latest = visible.slice(5);
@@ -325,11 +324,11 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
           );
         })}
 
-      {visibleCount < sorted.length && (
+      {hasMore && sorted.length < 50 && (
         <div ref={loadMoreRef} className="py-8 flex items-center justify-center">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-            <span className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 animate-spin" />
-            Loading more stories…
+            <span className={`w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 ${isLoadingMore ? 'animate-spin' : ''}`} />
+            {isLoadingMore ? 'Loading more stories…' : 'Scroll for more stories'}
           </div>
         </div>
       )}
