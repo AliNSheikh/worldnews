@@ -4,8 +4,22 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const fallbackVerification = '2jPjrp7JwTnr9NB0oVbnk4FHP_VhGKp01NEo8qXQ2R8';
+  const googleVerification = String(
+    process.env.GOOGLE_SITE_VERIFICATION || fallbackVerification
+  )
+    .replace(/^google-site-verification=/, '')
+    .trim();
+
+  const staticVerificationPlugin = {
+    name: 'news-discover-static-google-verification',
+    transformIndexHtml(html: string) {
+      return html.replace('__GOOGLE_SITE_VERIFICATION__', googleVerification);
+    },
+  };
+
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [staticVerificationPlugin, react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
