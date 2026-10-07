@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { Article, Category, EditorialType, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
@@ -24,6 +24,8 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
   const [filterType, setFilterType] = useState<EditorialType | 'all'>('all');
   const [sortBy, setSortBy] = useState<'latest' | 'popular'>('latest');
+  const [visibleCount, setVisibleCount] = useState(12);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const currentCategory = categories.find((c) => c.slug === categorySlug);
   const categoryName = currentCategory?.names[currentLang] || categorySlug;
@@ -45,8 +47,25 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
     return list;
   }, [articles, categorySlug, filterType, sortBy]);
 
-  const leadArticle = filteredArticles[0];
-  const gridArticles = filteredArticles.slice(1);
+  useEffect(() => {
+    setVisibleCount(12);
+  }, [categorySlug, filterType, sortBy]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || visibleCount >= filteredArticles.length) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((count) => Math.min(count + 12, filteredArticles.length));
+      }
+    }, { rootMargin: '300px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, filteredArticles.length]);
+
+  const visibleArticles = filteredArticles.slice(0, visibleCount);
+  const leadArticle = visibleArticles[0];
+  const gridArticles = visibleArticles.slice(1);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
