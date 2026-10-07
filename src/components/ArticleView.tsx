@@ -416,35 +416,9 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
           <div className="flex items-center gap-2 text-sky-900 font-semibold">
             <span>{t.availableLanguages}:</span>
             <div className="flex gap-1.5">
-              {(siteSettings.enabledLanguages || ['ar', 'en', 'de', 'es', 'fr']).map((lang) => {
-                const isCurrent = currentLang === lang;
-                const edition = article.translations[lang];
-                const hasTrans =
-                  Boolean(edition?.title) &&
-                  Boolean(edition?.structuredBody || edition?.executiveSummary) &&
-                  edition?.translationStatus === 'complete';
-                return (
-                  <button
-                    key={lang}
-                    disabled={!hasTrans}
-                    onClick={() => {
-                      if (!isCurrent && hasTrans) {
-                        onLanguageChange(lang);
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded uppercase font-bold text-[11px] transition-colors ${
-                      isCurrent
-                        ? 'bg-sky-700 text-white shadow-xs'
-                        : hasTrans
-                        ? 'bg-white text-sky-800 hover:bg-sky-200 cursor-pointer'
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    }`}
-                    title={hasTrans ? `Open ${lang.toUpperCase()} edition` : `${lang.toUpperCase()} translation pending`}
-                  >
-                    {lang}
-                  </button>
-                );
-              })}
+              <span className="px-2 py-0.5 rounded bg-sky-700 text-white font-bold text-[11px] uppercase">
+                EN
+              </span>
             </div>
           </div>
         </div>
