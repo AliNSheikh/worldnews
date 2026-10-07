@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { Article, Category, EditorialType, LanguageCode } from '../types';
 import { TRANSLATIONS } from '../data/translations';
@@ -24,6 +24,8 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
   const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
   const [filterType, setFilterType] = useState<EditorialType | 'all'>('all');
   const [sortBy, setSortBy] = useState<'latest' | 'popular'>('latest');
+  const [visibleCount, setVisibleCount] = useState(12);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const currentCategory = categories.find((c) => c.slug === categorySlug);
   const categoryName = currentCategory?.names[currentLang] || categorySlug;
@@ -45,8 +47,28 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
     return list;
   }, [articles, categorySlug, filterType, sortBy]);
 
-  const leadArticle = filteredArticles[0];
-  const gridArticles = filteredArticles.slice(1);
+  useEffect(() => {
+    setVisibleCount(12);
+  }, [categorySlug, filterType, sortBy]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || visibleCount >= filteredArticles.length || visibleCount >= 50) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((current) => Math.min(filteredArticles.length, current + 9, 50));
+        }
+      },
+      { rootMargin: '500px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, filteredArticles.length]);
+
+  const visibleArticles = filteredArticles.slice(0, Math.min(visibleCount, 50));
+  const leadArticle = visibleArticles[0];
+  const gridArticles = visibleArticles.slice(1);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -152,6 +174,15 @@ export const CategoryView: React.FC<CategoryViewProps> = ({
                   onSelectCategory={onSelectCategory}
                 />
               ))}
+            </div>
+          )}
+
+          {visibleCount < Math.min(filteredArticles.length, 50) && (
+            <div ref={loadMoreRef} className="py-8 flex justify-center">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                <span className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 animate-spin" />
+                Loading more {categoryName} stories…
+              </div>
             </div>
           )}
         </div>
