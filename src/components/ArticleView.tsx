@@ -33,7 +33,7 @@ import { CommentsSection } from './CommentsSection';
 import { ArticleCard } from './ArticleCard';
 import { updatePageSEO } from '../utils/seo';
 import { analytics } from '../utils/analytics';
-import { getArticleTranslation, hasCompleteTranslation } from '../utils/articleTranslation';
+import { getArticleTranslation } from '../utils/articleTranslation';
 
 interface ArticleViewProps {
   article: Article;
