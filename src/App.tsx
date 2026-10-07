@@ -18,7 +18,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginGate } from './components/AdminLoginGate';
 import { updatePageSEO } from './utils/seo';
 import { analytics } from './utils/analytics';
-import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTranslation';
+import { getArticleTranslation } from './utils/articleTranslation';
 import { NewsDiscoverHome } from './components/NewsDiscoverHome';
 
 export function App() {
