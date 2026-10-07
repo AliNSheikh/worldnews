@@ -41,6 +41,7 @@ interface AdminDashboardProps {
   onClose: () => void;
   onRefreshArticles: () => void;
   onRefreshSources: () => void;
+  onRefreshCategories: () => void;
   onRefreshLogs: () => void;
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
   onSelectArticle: (article: Article) => void;
@@ -56,6 +57,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onClose,
   onRefreshArticles,
   onRefreshSources,
+  onRefreshCategories,
   onRefreshLogs,
   onUpdateSettings,
   onSelectArticle,
@@ -125,7 +127,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage('Starting full feed drain with no fixed article cap...');
+    setCrawlerActionMessage('Fetching unique English articles published during the last 60 minutes...');
     let total = 0;
     let cycles = 0;
     let hasMore = true;
@@ -1087,7 +1089,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <NewsroomSettingsPanel
             settings={settings}
             logs={logs}
+            categories={categories}
             onUpdateSettings={onUpdateSettings}
+            onRefreshCategories={onRefreshCategories}
             onRefreshLogs={onRefreshLogs}
           />
         )}
