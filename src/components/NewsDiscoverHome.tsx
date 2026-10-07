@@ -70,17 +70,30 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
   const [visibleCount, setVisibleCount] = useState(12);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const sorted = useMemo(
-    () =>
-      [...articles]
-        .filter((article) => article.status === 'published')
-        .sort(
-          (a, b) =>
-            new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-        )
-        .slice(0, 50),
-    [articles]
-  );
+  const sorted = useMemo(() => {
+    const chronological = [...articles]
+      .filter((article) => article.status === 'published')
+      .sort(
+        (a, b) =>
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      )
+      .slice(0, 50);
+
+    // Keep the newest story first, then avoid long runs of the same category when
+    // another fresh category is available.
+    if (chronological.length < 3) return chronological;
+    const diversified: Article[] = [chronological[0]];
+    const pool = chronological.slice(1);
+    while (pool.length) {
+      const previousCategory = diversified[diversified.length - 1]?.category;
+      const alternateIndex = pool.findIndex(
+        (article) => article.category !== previousCategory
+      );
+      const index = alternateIndex >= 0 ? alternateIndex : 0;
+      diversified.push(pool.splice(index, 1)[0]);
+    }
+    return diversified;
+  }, [articles]);
 
   useEffect(() => {
     setVisibleCount(12);
