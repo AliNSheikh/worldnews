@@ -410,6 +410,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
             </button>
           </div>
         </div>
+      </div>
 
       {/* Video Broadcast Section (Iframe Embed + Broadcast Screenshot) */}
       {(article.hasVideo || article.videoIframeUrl || article.videoUrl) && (
