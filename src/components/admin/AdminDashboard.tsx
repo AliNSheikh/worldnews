@@ -30,6 +30,7 @@ import { ArticleEditorModal } from './ArticleEditorModal';
 import { RssSourcesPanel } from './RssSourcesPanel';
 import { CommentModerationPanel } from './CommentModerationPanel';
 import { NewsroomSettingsPanel } from './NewsroomSettingsPanel';
+import { CategorySeoPanel } from './CategorySeoPanel';
 
 interface AdminDashboardProps {
   articles: Article[];
@@ -40,6 +41,7 @@ interface AdminDashboardProps {
   currentLang: LanguageCode;
   onClose: () => void;
   onRefreshArticles: () => void;
+  onRefreshCategories: () => void;
   onRefreshSources: () => void;
   onRefreshLogs: () => void;
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
@@ -55,13 +57,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentLang,
   onClose,
   onRefreshArticles,
+  onRefreshCategories,
   onRefreshSources,
   onRefreshLogs,
   onUpdateSettings,
   onSelectArticle,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'articles' | 'ai-draft' | 'crawler' | 'sources' | 'comments' | 'settings'
+    'articles' | 'ai-draft' | 'crawler' | 'sources' | 'comments' | 'category-seo' | 'settings'
   >('articles');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -167,7 +170,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleTranslatePending = async () => {
     setIsTranslationRunning(true);
-    setCrawlerActionMessage('Translating pending article editions...');
+    setCrawlerActionMessage('English-only mode is enabled; translation jobs are disabled.');
     try {
       const res = await fetch('/api/crawler/translate-pending?batch=20', { method: 'POST' });
       const raw = await res.text();
@@ -375,7 +378,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       const draft = await res.json();
       setAiDraftResult(draft);
-      setAiStatusMessage('Multilingual draft successfully structured across all 5 editions.');
+      setAiStatusMessage('English draft successfully structured.');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setAiStatusMessage(`Notice: ${msg}`);
@@ -505,6 +508,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <MessageSquare className="w-4 h-4 text-emerald-400" />
             <span>Comments Queue</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('category-seo')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+              activeTab === 'category-seo'
+                ? 'border-sky-500 text-sky-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-sky-400" />
+            <span>Category SEO</span>
           </button>
 
           <button
@@ -1082,7 +1097,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* TAB 4: COMMENTS */}
         {activeTab === 'comments' && <CommentModerationPanel />}
 
-        {/* TAB 5: SETTINGS */}
+        {/* TAB 5: CATEGORY SEO */}
+        {activeTab === 'category-seo' && (
+          <CategorySeoPanel
+            categories={categories}
+            onRefreshCategories={onRefreshCategories}
+          />
+        )}
+
+        {/* TAB 6: SETTINGS */}
         {activeTab === 'settings' && (
           <NewsroomSettingsPanel
             settings={settings}
