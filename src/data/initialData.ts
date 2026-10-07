@@ -1493,7 +1493,7 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
     es: 'News Discover publica contenido procedente de las fuentes sin reescritura por IA en la ingesta automática y conserva la procedencia para su verificación.',
     fr: 'News Discover publie des contenus issus des sources sans réécriture par IA dans l’ingestion automatique et conserve leur provenance pour vérification.',
   },
-  siteUrl: '',
+  siteUrl: 'https://www.newsdiscover.org',
   googleSearchConsoleVerification: '',
   googleAnalyticsMeasurementId: '',
 };
