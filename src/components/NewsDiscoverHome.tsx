@@ -16,12 +16,13 @@ interface NewsDiscoverHomeProps {
   onSelectCategory: (slug: string) => void;
 }
 
-function diversifyByCategory(articles: Article[]): Article[] {
+function diversifyStories(articles: Article[]): Article[] {
   const queues = new Map<string, Article[]>();
   for (const article of articles) {
-    const queue = queues.get(article.category) || [];
+    const key = `${article.editorialType}:${article.category}`;
+    const queue = queues.get(key) || [];
     queue.push(article);
-    queues.set(article.category, queue);
+    queues.set(key, queue);
   }
   const result: Article[] = [];
   while (result.length < articles.length) {
@@ -97,11 +98,14 @@ export const NewsDiscoverHome: React.FC<NewsDiscoverHomeProps> = ({
       .filter((article) => article.status === 'published')
       .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
       .slice(0, 50);
-    return diversifyByCategory(newest);
+    return diversifyStories(newest);
   }, [articles]);
 
   useEffect(() => {
-    setVisibleCount(Math.min(12, Math.max(sorted.length, 1)));
+    setVisibleCount((count) => {
+      const initial = Math.min(12, sorted.length);
+      return Math.min(sorted.length, Math.max(count, initial));
+    });
   }, [sorted.length]);
 
   useEffect(() => {
