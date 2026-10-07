@@ -34,6 +34,8 @@ export function App() {
   // Data Store States
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoadingArticles, setIsLoadingArticles] = useState(true);
+  const [isLoadingMoreArticles, setIsLoadingMoreArticles] = useState(false);
+  const [hasMoreArticles, setHasMoreArticles] = useState(true);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [sources, setSources] = useState<NewsSource[]>(INITIAL_NEWS_SOURCES);
   const [settings, setSettings] = useState<SiteSettings>(INITIAL_SITE_SETTINGS);
@@ -50,19 +52,52 @@ export function App() {
   const fetchArticles = useCallback(async () => {
     setIsLoadingArticles(true);
     try {
-      const res = await fetch('/api/articles?status=published&limit=50', { cache: 'no-store' });
+      const res = await fetch('/api/articles?status=published&limit=12&offset=0', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        setArticles(Array.isArray(data) ? data : []);
+        const firstPage = Array.isArray(data) ? data : [];
+        setArticles(firstPage);
+        setHasMoreArticles(firstPage.length === 12);
       } else {
         setArticles([]);
+        setHasMoreArticles(false);
       }
     } catch {
       setArticles([]);
+      setHasMoreArticles(false);
     } finally {
       setIsLoadingArticles(false);
     }
   }, []);
+
+  const loadMoreArticles = useCallback(async () => {
+    if (isLoadingArticles || isLoadingMoreArticles || !hasMoreArticles || articles.length >= 50) return;
+    setIsLoadingMoreArticles(true);
+    try {
+      const remaining = 50 - articles.length;
+      const limit = Math.min(10, remaining);
+      const res = await fetch(
+        `/api/articles?status=published&limit=${limit}&offset=${articles.length}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) {
+        setHasMoreArticles(false);
+        return;
+      }
+      const data = await res.json();
+      const page: Article[] = Array.isArray(data) ? data : [];
+      setArticles((current) => {
+        const seen = new Set(current.map((article) => article.id));
+        const merged = [...current, ...page.filter((article) => !seen.has(article.id))];
+        return merged.slice(0, 50);
+      });
+      setHasMoreArticles(page.length === limit && articles.length + page.length < 50);
+    } catch {
+      setHasMoreArticles(false);
+    } finally {
+      setIsLoadingMoreArticles(false);
+    }
+  }, [articles.length, hasMoreArticles, isLoadingArticles, isLoadingMoreArticles]);
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -111,6 +146,16 @@ export function App() {
     fetchSettings();
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const nearBottom =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 900;
+      if (nearBottom) loadMoreArticles();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [loadMoreArticles]);
 
 
   // Initialize Google Analytics when measurement ID is configured
@@ -374,6 +419,12 @@ export function App() {
             onSelectArticle={handleSelectArticle}
             onSelectCategory={handleSelectCategory}
           />
+        )}
+        {!isLoadingArticles && isLoadingMoreArticles && (
+          <div className="py-5 flex items-center justify-center text-xs font-semibold text-slate-500">
+            <div className="w-5 h-5 rounded-full border-2 border-slate-200 border-t-red-600 animate-spin me-2" />
+            Loading more articles…
+          </div>
         )}
       </main>
 
