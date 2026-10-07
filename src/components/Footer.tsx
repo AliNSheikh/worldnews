@@ -83,7 +83,7 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
             <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-sm">
               {siteSettings.descriptions[currentLang] ||
-                'Authoritative 24/7 multilingual digital newsroom delivering verified international reporting, economic intelligence, and deep geopolitical analysis across five languages.'}
+                'Authoritative 24/7 English-language digital newsroom delivering verified international reporting, economic intelligence, and geopolitical analysis.'}
             </p>
 
             {/* Newsletter Subscription */}
@@ -211,53 +211,15 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
           </div>
 
-          {/* Multilingual Editions */}
+          {/* Official English Edition */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-              Editions
+              Edition
             </h4>
-            <div className="space-y-3">
-              {/* Language Switching Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setFooterLangOpen(!footerLangOpen)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg text-xs text-white transition-colors cursor-pointer"
-                >
-                  <span className="flex items-center gap-2">
-                    <Globe className="w-3.5 h-3.5 text-sky-400" />
-                    <span>{currentLangObj.flag}</span>
-                    <span>{currentLangObj.label}</span>
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${footerLangOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {footerLangOpen && (
-                  <div className="absolute bottom-full mb-1 left-0 right-0 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1 z-30">
-                    {languages.map((item) => (
-                      <button
-                        key={item.code}
-                        type="button"
-                        onClick={() => {
-                          onLanguageChange(item.code);
-                          setFooterLangOpen(false);
-                        }}
-                        className={`w-full text-start px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                          currentLang === item.code
-                            ? 'bg-sky-600/30 text-sky-300 font-bold'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>{item.flag}</span>
-                          <span>{item.label}</span>
-                        </span>
-                        {currentLang === item.code && <Check className="w-3.5 h-3.5 text-sky-400" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <div className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5 text-sky-400" />
+              <span>🇬🇧</span>
+              <span>English — Official Edition</span>
             </div>
           </div>
         </div>
