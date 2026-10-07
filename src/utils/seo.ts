@@ -62,7 +62,7 @@ export function updatePageSEO(options: {
     : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
   setMeta('robots', robotsDirective);
   setMeta('googlebot', robotsDirective);
-  setMeta('googlebot-news', 'index, follow');
+  setMeta('googlebot-news', category?.seoNoIndex ? 'noindex, follow' : 'index, follow');
 
   // Google News Keywords
   if (article) {
