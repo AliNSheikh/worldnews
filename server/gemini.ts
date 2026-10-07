@@ -42,12 +42,20 @@ export async function generateEditorialDraft(
     archivedContext ? `ADDITIONAL VERIFIED CONTEXT:\n${archivedContext}` : '',
   ].filter(Boolean).join('\n\n');
 
+  const safeSlug = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 72) || `article-${Date.now()}`;
+
   if (ai) {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: `You are a senior international newsroom editor and multilingual SEO editor for World News.
-Create an original, concise news report from the verified source material below. Accuracy is more important than length.
+        contents: `You are a senior English-language international newsroom editor and SEO editor for World News.
+Create one English news edition only. Do not translate the article into any other language.
 
 SOURCE HEADLINE: "${prompt}"
 ${sourceMaterial}
@@ -55,206 +63,98 @@ ${sourceMaterial}
 STRICT FACT-PRESERVATION RULES:
 1. Use only facts explicitly present in the supplied headline, description, article body, or verified context.
 2. Never invent quotations, people, organizations, dates, numbers, locations, causes, consequences, reactions, or forecasts.
-3. If a detail is not in the supplied material, omit it. Do not fill gaps with plausible background.
-4. Rewrite the headline while preserving the same event, subject, named entities, and meaning. Do not change the angle.
-5. Write an original summary of the factual material; do not copy long passages or imitate the source wording sentence by sentence.
-6. Do not mention the upstream publisher, source URL, scraping, feeds, or AI in reader-facing title, summary, body, FAQ, or SEO fields. Source provenance is retained internally by the CMS.
-7. Do not create a quote unless the exact quote is present in the supplied source body.
+3. Rewrite the headline while preserving the same event, subject, named entities, and meaning.
+4. Write an original English summary and article body without copying long passages.
+5. Do not mention scraping, feeds, AI, or the upstream URL in reader-facing copy.
+6. Do not create a quotation unless the exact quotation exists in the supplied source material.
 
-SEO / PUBLISHING REQUIREMENTS:
-- Create a natural SEO title (roughly 50-65 characters when the language allows), a useful meta description (roughly 140-160 characters), 5-8 accurate keywords, and 3-6 concise topic tags.
-- Keep titles readable and news-like; no clickbait or keyword stuffing.
-- Generate clean, unique slugs for each language.
-- Provide image alt text that describes the news topic without inventing visual details.
-- FAQ may be empty when the source material does not support factual Q&A.
-- Produce aligned editions for all supported languages: en, ar (Modern Standard Arabic), de, es, fr. Every translation must preserve the exact same factual claims and uncertainty level.
-- The body should be as detailed as the verified material supports, but never padded with invented context.`,
+SEO REQUIREMENTS:
+- English only.
+- Natural SEO title around 50-65 characters where practical.
+- Meta description around 140-160 characters.
+- 5-8 accurate keywords and 3-6 concise topic tags.
+- One clean, unique English slug.
+- Descriptive image alt text without inventing visual details.
+- FAQ may be empty when unsupported by the source.
+- No clickbait or keyword stuffing.`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              title: { type: Type.STRING },
+              slug: { type: Type.STRING },
+              executiveSummary: { type: Type.STRING },
+              structuredBody: { type: Type.STRING },
+              seoTitle: { type: Type.STRING },
+              metaDescription: { type: Type.STRING },
+              keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+              tags: { type: Type.ARRAY, items: { type: Type.STRING } },
               imageAlt: { type: Type.STRING },
-              imagePromptDescription: { type: Type.STRING },
-              translations: {
-                type: Type.OBJECT,
-                properties: {
-                  en: {
-                    type: Type.OBJECT,
-                    properties: {
-                      title: { type: Type.STRING },
-                      slug: { type: Type.STRING },
-                      executiveSummary: { type: Type.STRING },
-                      structuredBody: { type: Type.STRING },
-                      seoTitle: { type: Type.STRING },
-                      metaDescription: { type: Type.STRING },
-                      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      imageAlt: { type: Type.STRING },
-                      faq: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            question: { type: Type.STRING },
-                            answer: { type: Type.STRING },
-                          },
-                          required: ['question', 'answer'],
-                        },
-                      },
-                      entities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                    required: ['title', 'slug', 'executiveSummary', 'structuredBody', 'seoTitle', 'metaDescription', 'keywords', 'imageAlt', 'faq', 'entities'],
+              faq: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    question: { type: Type.STRING },
+                    answer: { type: Type.STRING },
                   },
-                  ar: {
-                    type: Type.OBJECT,
-                    properties: {
-                      title: { type: Type.STRING },
-                      slug: { type: Type.STRING },
-                      executiveSummary: { type: Type.STRING },
-                      structuredBody: { type: Type.STRING },
-                      seoTitle: { type: Type.STRING },
-                      metaDescription: { type: Type.STRING },
-                      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      imageAlt: { type: Type.STRING },
-                      faq: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            question: { type: Type.STRING },
-                            answer: { type: Type.STRING },
-                          },
-                          required: ['question', 'answer'],
-                        },
-                      },
-                      entities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                    required: ['title', 'slug', 'executiveSummary', 'structuredBody', 'seoTitle', 'metaDescription', 'keywords', 'imageAlt', 'faq', 'entities'],
-                  },
-                  de: {
-                    type: Type.OBJECT,
-                    properties: {
-                      title: { type: Type.STRING },
-                      slug: { type: Type.STRING },
-                      executiveSummary: { type: Type.STRING },
-                      structuredBody: { type: Type.STRING },
-                      seoTitle: { type: Type.STRING },
-                      metaDescription: { type: Type.STRING },
-                      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      imageAlt: { type: Type.STRING },
-                      faq: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            question: { type: Type.STRING },
-                            answer: { type: Type.STRING },
-                          },
-                          required: ['question', 'answer'],
-                        },
-                      },
-                      entities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                    required: ['title', 'slug', 'executiveSummary', 'structuredBody', 'seoTitle', 'metaDescription', 'keywords', 'imageAlt', 'faq', 'entities'],
-                  },
-                  es: {
-                    type: Type.OBJECT,
-                    properties: {
-                      title: { type: Type.STRING },
-                      slug: { type: Type.STRING },
-                      executiveSummary: { type: Type.STRING },
-                      structuredBody: { type: Type.STRING },
-                      seoTitle: { type: Type.STRING },
-                      metaDescription: { type: Type.STRING },
-                      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      imageAlt: { type: Type.STRING },
-                      faq: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            question: { type: Type.STRING },
-                            answer: { type: Type.STRING },
-                          },
-                          required: ['question', 'answer'],
-                        },
-                      },
-                      entities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                    required: ['title', 'slug', 'executiveSummary', 'structuredBody', 'seoTitle', 'metaDescription', 'keywords', 'imageAlt', 'faq', 'entities'],
-                  },
-                  fr: {
-                    type: Type.OBJECT,
-                    properties: {
-                      title: { type: Type.STRING },
-                      slug: { type: Type.STRING },
-                      executiveSummary: { type: Type.STRING },
-                      structuredBody: { type: Type.STRING },
-                      seoTitle: { type: Type.STRING },
-                      metaDescription: { type: Type.STRING },
-                      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      imageAlt: { type: Type.STRING },
-                      faq: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            question: { type: Type.STRING },
-                            answer: { type: Type.STRING },
-                          },
-                          required: ['question', 'answer'],
-                        },
-                      },
-                      entities: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    },
-                    required: ['title', 'slug', 'executiveSummary', 'structuredBody', 'seoTitle', 'metaDescription', 'keywords', 'imageAlt', 'faq', 'entities'],
-                  },
+                  required: ['question', 'answer'],
                 },
-                required: ['en', 'ar', 'de', 'es', 'fr'],
               },
+              entities: { type: Type.ARRAY, items: { type: Type.STRING } },
             },
-            required: ['imageAlt', 'translations'],
+            required: [
+              'title',
+              'slug',
+              'executiveSummary',
+              'structuredBody',
+              'seoTitle',
+              'metaDescription',
+              'keywords',
+              'imageAlt',
+              'faq',
+              'entities',
+            ],
           },
         },
       });
 
       const parsed = JSON.parse(response.text || '{}');
-      if (parsed.translations?.en && parsed.translations?.ar) {
-        // Enforce translationStatus
-        const languages: LanguageCode[] = ['en', 'ar', 'de', 'es', 'fr'];
-        languages.forEach((lang) => {
-          if (parsed.translations[lang]) {
-            parsed.translations[lang].language = lang;
-            parsed.translations[lang].translationStatus = 'complete';
-            parsed.translations[lang].executiveSummary = sanitizeBoldFormatting(parsed.translations[lang].executiveSummary || '');
-            parsed.translations[lang].structuredBody = sanitizeBoldFormatting(parsed.translations[lang].structuredBody || '');
-            parsed.translations[lang].tags = parsed.translations[lang].tags || parsed.translations[lang].keywords?.slice(0, 6) || [];
-          }
-        });
+      if (parsed.title && parsed.structuredBody) {
+        const english: ArticleTranslation = {
+          language: 'en',
+          title: String(parsed.title).trim(),
+          slug: safeSlug(String(parsed.slug || parsed.title)),
+          executiveSummary: sanitizeBoldFormatting(String(parsed.executiveSummary || '')),
+          structuredBody: sanitizeBoldFormatting(String(parsed.structuredBody || '')),
+          seoTitle: String(parsed.seoTitle || parsed.title).trim(),
+          metaDescription: String(parsed.metaDescription || parsed.executiveSummary || '').trim(),
+          keywords: Array.isArray(parsed.keywords) ? parsed.keywords.slice(0, 8) : [],
+          tags: Array.isArray(parsed.tags)
+            ? parsed.tags.slice(0, 6)
+            : Array.isArray(parsed.keywords)
+              ? parsed.keywords.slice(0, 6)
+              : [],
+          imageAlt: String(parsed.imageAlt || parsed.title).trim(),
+          faq: Array.isArray(parsed.faq) ? parsed.faq : [],
+          translationStatus: 'complete',
+          entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+        };
+
         return {
           category,
           originalSource: sourceName,
           originalUrl: sourceUrl,
-          imageAlt: parsed.imageAlt || 'Editorial news photo illustrating current events',
-          imagePromptDescription: parsed.imagePromptDescription || prompt,
-          translations: parsed.translations,
+          imageAlt: english.imageAlt,
+          imagePromptDescription: prompt,
+          translations: { en: english } as Record<LanguageCode, ArticleTranslation>,
         };
       }
     } catch (err) {
-      console.warn('Gemini generateContent error, using fallback template:', err);
+      console.warn('Gemini English editorial generation error, using review fallback:', err);
     }
   }
-
-  // Safety-first fallback: never invent missing facts when the AI service is unavailable.
-  // These editions remain in review state so the automated pipeline will not publish/index
-  // untranslated or weakly grounded content.
-  const safeSlug =
-    prompt
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '')
-      .slice(0, 64) || `article-${Date.now()}`;
 
   const factualBody = (sourceArticleText || rawDescription || prompt).trim();
   const factualSummary = (rawDescription || factualBody || prompt).replace(/\s+/g, ' ').trim().slice(0, 240);
@@ -264,10 +164,10 @@ SEO / PUBLISHING REQUIREMENTS:
     .filter((word) => word.length > 3)
     .slice(0, 6);
 
-  const buildReviewTranslation = (language: LanguageCode, suffix: string): ArticleTranslation => ({
-    language,
+  const english: ArticleTranslation = {
+    language: 'en',
     title: prompt,
-    slug: `${safeSlug}${suffix}`,
+    slug: safeSlug(prompt),
     executiveSummary: factualSummary,
     structuredBody: factualBody,
     seoTitle: prompt.slice(0, 70),
@@ -278,7 +178,7 @@ SEO / PUBLISHING REQUIREMENTS:
     faq: [],
     translationStatus: 'needs-review',
     entities: [],
-  });
+  };
 
   return {
     category,
@@ -286,13 +186,7 @@ SEO / PUBLISHING REQUIREMENTS:
     originalUrl: sourceUrl,
     imageAlt: prompt,
     imagePromptDescription: prompt,
-    translations: {
-      en: buildReviewTranslation('en', ''),
-      ar: buildReviewTranslation('ar', '-ar'),
-      de: buildReviewTranslation('de', '-de'),
-      es: buildReviewTranslation('es', '-es'),
-      fr: buildReviewTranslation('fr', '-fr'),
-    },
+    translations: { en: english } as Record<LanguageCode, ArticleTranslation>,
   };
 }
 
