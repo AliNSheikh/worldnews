@@ -97,7 +97,7 @@ In **Control Panel → Settings → Google Search & Analytics** configure:
 - Google Analytics Measurement ID (for example `G-XXXXXXXXXX`)
 - Google Search Console verification token
 
-The site injects the Analytics configuration and the Search Console verification meta tag from saved settings.
+The browser still reflects the saved Search Console token, but ownership verification uses a build-time token so it is present in the initial homepage `<head>` before React runs.
 
 For Search Console:
 
@@ -169,3 +169,20 @@ The production Search Console verification token is rendered directly in `index.
 ## Automatic translation
 
 Enable the **Cloud Translation API** in a Google Cloud project and create a dedicated API key for Cloud Translation Basic (v2). Add it to Vercel as `GOOGLE_TRANSLATE_API_KEY` for Production, Preview, and Development, then redeploy. The hourly crawler automatically translates newly imported articles into every language enabled in the control panel. Existing untranslated rows are backfilled on crawler runs and can also be processed from **Crawler → Translate Pending Articles**.
+
+
+## Search Console production verification
+
+For HTML-tag verification of a **URL-prefix property**, add the exact token from Search Console to Vercel as:
+
+```env
+GOOGLE_SITE_VERIFICATION="YOUR_TOKEN_ONLY"
+```
+
+Paste only the `content` value from Google's meta tag. Redeploy production, then use **View Page Source** on the homepage and confirm this exists inside `<head>`:
+
+```html
+<meta name="google-site-verification" content="YOUR_TOKEN_ONLY" />
+```
+
+If you created a **Domain property** (for example `newsdiscover.com` rather than `https://newsdiscover.com/`), Google requires DNS verification instead; the HTML meta-tag method does not verify Domain properties.
