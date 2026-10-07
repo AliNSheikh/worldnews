@@ -206,8 +206,8 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
           </div>
 
-          {/* Multilingual Editions */}
-          <div>
+          {/* Legacy edition selector hidden: News Discover is English-only. */}
+          <div className="hidden">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
               Editions
             </h4>
