@@ -368,9 +368,11 @@ export default async function handler(req: any, res: any) {
       if (resource !== 'settings') current = (await listPayloads(table)).find((v) => v.id === id) || {};
       else current = normalizeSettings((await listPayloads(table))[0] || {});
       const value = resource === 'articles'
-        ? { ...current, ...input, id: current.id || id, updatedAt: new Date().toISOString() }
+        ? { ...current, ...normalizeArticle({ ...current, ...input, id: current.id || id }), updatedAt: new Date().toISOString() }
         : resource === 'settings'
         ? normalizeSettings({ ...current, ...input })
+        : resource === 'sources'
+        ? { ...current, ...input, ...(id ? { id } : {}), defaultLanguage: 'en', language: 'en' }
         : { ...current, ...input, ...(id ? { id } : {}) };
       await upsert(table, resource === 'settings' ? 'default' : String(id), value);
       return json(res, 200, value);
