@@ -6,7 +6,8 @@ import {
   NewsSource,
   SiteSettings,
 } from '../src/types';
-import { ensureTursoSchema, getTursoClient, isTursoConfigured } from './turso';
+import { isTursoConfigured } from './turso';
+import { tursoRepository } from './tursoRepository';
 
 export interface PersistenceSnapshot {
   articles: Article[];
@@ -18,15 +19,6 @@ export interface PersistenceSnapshot {
 }
 
 type PersistenceProvider = 'turso' | 'memory';
-
-const tableMap = {
-  articles: 'newsroom_articles',
-  categories: 'newsroom_categories',
-  sources: 'newsroom_sources',
-  comments: 'newsroom_comments',
-  logs: 'newsroom_logs',
-  settings: 'newsroom_settings',
-} as const;
 
 export function getPersistenceProvider(): PersistenceProvider {
   return isTursoConfigured() ? 'turso' : 'memory';
@@ -47,146 +39,51 @@ function emptySnapshot(): PersistenceSnapshot {
   };
 }
 
-function parsePayload<T>(payload: unknown): T | null {
-  if (payload == null) return null;
-  if (typeof payload === 'object') return payload as T;
-  try {
-    return JSON.parse(String(payload)) as T;
-  } catch (error) {
-    console.error('[World News DB] Invalid JSON payload in Turso row:', error);
-    return null;
-  }
-}
-
-async function selectPayloads<T>(key: keyof typeof tableMap): Promise<T[]> {
-  if (!isTursoConfigured()) return [];
-  await ensureTursoSchema();
-  const db = getTursoClient();
-  const result = await db.execute(`SELECT payload FROM ${tableMap[key]}`);
-  return result.rows
-    .map((row: Record<string, unknown>) => parsePayload<T>(row.payload))
-    .filter((row: T | null): row is T => Boolean(row));
-}
-
-async function upsertPayload(
-  key: keyof typeof tableMap,
-  record: {
-    id: string;
-    payload: unknown;
-    original_url?: string | null;
-    category?: string | null;
-    status?: string | null;
-    published_at?: string | null;
-    updated_at?: string | null;
-  }
-): Promise<void> {
-  if (!isTursoConfigured()) return;
-  await ensureTursoSchema();
-  const db = getTursoClient();
-  const payload = JSON.stringify(record.payload);
-
-  if (key === 'articles') {
-    await db.execute({
-      sql: `INSERT INTO newsroom_articles
-        (id, original_url, category, status, published_at, updated_at, payload)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          original_url = excluded.original_url,
-          category = excluded.category,
-          status = excluded.status,
-          published_at = excluded.published_at,
-          updated_at = excluded.updated_at,
-          payload = excluded.payload`,
-      args: [
-        record.id,
-        record.original_url || null,
-        record.category || null,
-        record.status || null,
-        record.published_at || null,
-        record.updated_at || null,
-        payload,
-      ],
-    });
-    return;
-  }
-
-  await db.execute({
-    sql: `INSERT INTO ${tableMap[key]} (id, payload)
-      VALUES (?, ?)
-      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload`,
-    args: [record.id, payload],
-  });
-}
-
-async function deleteById(key: keyof typeof tableMap, id: string): Promise<void> {
-  if (!isTursoConfigured()) return;
-  await ensureTursoSchema();
-  const db = getTursoClient();
-  await db.execute({
-    sql: `DELETE FROM ${tableMap[key]} WHERE id = ?`,
-    args: [id],
-  });
-}
-
-async function loadSettings(): Promise<SiteSettings | null> {
-  const settings = await selectPayloads<SiteSettings>('settings');
-  return settings[0] || null;
-}
-
 export const persistence = {
   async loadSnapshot(): Promise<PersistenceSnapshot> {
     if (!isPersistenceConfigured()) return emptySnapshot();
-    await ensureTursoSchema();
 
     const [articles, categories, sources, comments, logs, settings] = await Promise.all([
-      selectPayloads<Article>('articles'),
-      selectPayloads<Category>('categories'),
-      selectPayloads<NewsSource>('sources'),
-      selectPayloads<Comment>('comments'),
-      selectPayloads<AutomationLog>('logs'),
-      loadSettings(),
+      tursoRepository.listArticles({ limit: 5000 }),
+      tursoRepository.listCategories(),
+      tursoRepository.listSources(),
+      tursoRepository.listComments(),
+      tursoRepository.listLogs(100),
+      tursoRepository.getSettings(),
     ]);
 
     return { articles, categories, sources, comments, logs, settings };
   },
 
   upsertArticle(article: Article) {
-    return upsertPayload('articles', {
-      id: article.id,
-      original_url: article.originalUrl || null,
-      category: article.category,
-      status: article.status,
-      published_at: article.publishedAt || null,
-      updated_at: article.updatedAt || null,
-      payload: article,
-    });
+    return tursoRepository.upsertArticle(article).then(() => undefined);
   },
 
   deleteArticle(id: string) {
-    return deleteById('articles', id);
+    return tursoRepository.deleteArticle(id).then(() => undefined);
   },
 
   upsertCategory(category: Category) {
-    return upsertPayload('categories', { id: category.id, payload: category });
+    return tursoRepository.upsertCategory(category).then(() => undefined);
   },
 
   upsertSource(source: NewsSource) {
-    return upsertPayload('sources', { id: source.id, payload: source });
+    return tursoRepository.upsertSource(source).then(() => undefined);
   },
 
   deleteSource(id: string) {
-    return deleteById('sources', id);
+    return tursoRepository.deleteSource(id).then(() => undefined);
   },
 
   upsertComment(comment: Comment) {
-    return upsertPayload('comments', { id: comment.id, payload: comment });
+    return tursoRepository.upsertComment(comment).then(() => undefined);
   },
 
   upsertLog(log: AutomationLog) {
-    return upsertPayload('logs', { id: log.id, payload: log });
+    return tursoRepository.upsertLog(log).then(() => undefined);
   },
 
   upsertSettings(settings: SiteSettings) {
-    return upsertPayload('settings', { id: 'default', payload: settings });
+    return tursoRepository.upsertSettings(settings).then(() => undefined);
   },
 };
