@@ -1,8 +1,8 @@
 import crypto from 'crypto';
-import { db } from '../server/db.js';
-import { fetchAndParseRssFeed, runRssImportJob } from '../server/rss.js';
-import { getCrawlerStatus, runCrawlerCycle } from '../server/crawler.js';
-import { getPersistenceProvider } from '../server/persistence.js';
+import { db } from '../server/db';
+import { fetchAndParseRssFeed, runRssImportJob } from '../server/rss';
+import { getCrawlerStatus, runCrawlerCycle } from '../server/crawler';
+import { getPersistenceProvider } from '../server/persistence';
 
 export const maxDuration = 60;
 const COOKIE = 'world_news_admin_session';
