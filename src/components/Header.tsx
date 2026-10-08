@@ -115,15 +115,25 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onHomeClick}
             className="text-start group cursor-pointer"
           >
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 group-hover:text-red-700 transition-colors">
-                {siteSettings.names[currentLang] || 'WORLD NEWS'}
-              </span>
-              <span className="hidden sm:inline-block w-2.5 h-2.5 rounded-full bg-red-600 mb-0.5"></span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium tracking-wide">
-              {siteSettings.descriptions[currentLang] || '24/7 International Digital Newsroom'}
-            </p>
+            {siteSettings.logoImage ? (
+              <img
+                src={siteSettings.logoImage}
+                alt={siteSettings.names.en || 'News Discover'}
+                className="h-10 sm:h-12 max-w-[220px] sm:max-w-[300px] object-contain object-left"
+              />
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 group-hover:text-red-700 transition-colors">
+                    {siteSettings.names[currentLang] || 'WORLD NEWS'}
+                  </span>
+                  <span className="hidden sm:inline-block w-2.5 h-2.5 rounded-full bg-red-600 mb-0.5"></span>
+                </div>
+                <p className="text-xs text-slate-500 font-medium tracking-wide">
+                  {siteSettings.descriptions[currentLang] || '24/7 International Digital Newsroom'}
+                </p>
+              </>
+            )}
           </button>
         </div>
 

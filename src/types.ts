@@ -138,6 +138,14 @@ export interface SiteSettings {
   names: Record<LanguageCode, string>;
   descriptions: Record<LanguageCode, string>;
   logoText: string;
+  logoImage?: string;
+  faviconImage?: string;
+  homepageSeoTitle?: string;
+  homepageSeoDescription?: string;
+  homepageSeoKeywords?: string[];
+  adsenseHeadCode?: string;
+  adsenseBodyCode?: string;
+  articlesPerSourcePerHour?: number;
   defaultLanguage: LanguageCode;
   enabledLanguages?: LanguageCode[];
   primaryColor: string;

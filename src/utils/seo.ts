@@ -6,12 +6,13 @@ export function updatePageSEO(options: {
   lang: LanguageCode;
   canonicalPath: string;
   image?: string;
+  keywords?: string[];
   type?: 'website' | 'article';
   article?: Article;
   category?: Category;
   siteSettings: SiteSettings;
 }) {
-  const { title, description, lang, canonicalPath, image, type = 'website', article, category, siteSettings } = options;
+  const { title, description, lang, canonicalPath, image, keywords, type = 'website', article, category, siteSettings } = options;
 
   // Title
   document.title = `${title} | ${siteSettings.names[lang] || 'News Discover'}`;
@@ -45,6 +46,8 @@ export function updatePageSEO(options: {
   setMeta('description', description);
   if (category?.seoKeywords?.length) {
     setMeta('keywords', category.seoKeywords.join(', '));
+  } else if (keywords?.length) {
+    setMeta('keywords', keywords.join(', '));
   }
 
   // Google Search Console Verification
@@ -137,7 +140,7 @@ export function updatePageSEO(options: {
     url: origin,
     logo: {
       '@type': 'ImageObject',
-      url: `${origin}/icon.svg`,
+      url: siteSettings.logoImage || siteSettings.faviconImage || `${origin}/icon.svg`,
     },
     publishingPrinciples: `${origin}/disclaimer`,
     ethicsPolicy: `${origin}/standards`,

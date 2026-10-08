@@ -51,8 +51,6 @@ const state: CrawlerState = {
 };
 
 const FEED_TIMEOUT_MS = Math.max(3000, Number(process.env.CRAWLER_FEED_TIMEOUT_MS || 8000));
-const MAX_ARTICLES_PER_RUN = Math.max(1, Math.min(10, Number(process.env.CRAWLER_MAX_ARTICLES_PER_RUN || 3)));
-const MAX_CANDIDATES_PER_SOURCE = Math.max(1, Math.min(10, Number(process.env.CRAWLER_MAX_ITEMS_PER_SOURCE || 5)));
 const FRESH_ARTICLE_WINDOW_MS = 60 * 60 * 1000;
 
 function normalizeArticleUrl(rawUrl: string): string {
@@ -120,7 +118,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
       scrapedSources: [],
       sourceDiagnostics: [],
       persistenceProvider: provider,
-      message: 'Crawler stopped: APPWRITE_API_KEY is not configured in the active Vercel Production environment, so fetched articles cannot be persisted.',
+      message: 'Crawler stopped: Turso is not configured in the active production environment. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN so fetched articles can be persisted.',
     };
   }
 
@@ -161,8 +159,12 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
   const diagnostics: CrawlerSourceDiagnostic[] = [];
 
   try {
-    await db.refresh(0);
+    await db.refresh(5000);
     const activeSources = db.getSources().filter((source) => source.isActive && source.rssUrl);
+    const perSourceLimit = Math.max(
+      1,
+      Math.min(20, Number(db.getSettings().articlesPerSourcePerHour || 3))
+    );
 
     if (activeSources.length === 0) {
       throw new Error('No active RSS sources are configured in the persistent newsroom database.');
@@ -190,7 +192,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
           const candidates = items
             .filter((item) => item.link && isFreshFeedItem(item) && !isAlreadyImported(item.link))
             .sort((a, b) => itemTimestamp(b) - itemTimestamp(a))
-            .slice(0, MAX_CANDIDATES_PER_SOURCE);
+            .slice(0, perSourceLimit);
 
           diagnostic.candidates = candidates.length;
           return { source, items: candidates, diagnostic };
@@ -210,8 +212,6 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
       .sort((a, b) => itemTimestamp(b.item) - itemTimestamp(a.item));
 
     for (const candidate of candidates) {
-      if (addedCount >= MAX_ARTICLES_PER_RUN) break;
-
       const { source, item, diagnostic } = candidate;
       if (isAlreadyImported(item.link)) continue;
 
@@ -335,8 +335,8 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
       importedCount: addedCount,
     });
 
-    // This now throws if Appwrite rejected any queued write, so the CMS will
-    // never report a successful crawl when nothing was persisted.
+    // This throws if Turso rejected any queued write, so the CMS never reports
+    // a successful crawl when persistence failed.
     await db.flush();
 
     const failedSources = diagnostics.filter((diagnostic) => diagnostic.error).length;
@@ -415,7 +415,10 @@ export function getCrawlerStatus() {
     isCurrentlyRunning: state.isCurrentlyRunning,
     scrapedUrlsCount: state.scrapedUrls.size,
     freshArticleWindowMinutes: 60,
-    maxArticlesPerRun: MAX_ARTICLES_PER_RUN,
+    maxArticlesPerSourcePerHour: Math.max(
+      1,
+      Math.min(20, Number(db.getSettings().articlesPerSourcePerHour || 3))
+    ),
     persistence: db.getPersistenceStatus(),
   };
 }

@@ -296,8 +296,13 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
   let totalImported = 0;
   const started = new Date().toISOString();
+  const perSourceLimit = Math.max(
+    1,
+    Math.min(20, Number(db.getSettings().articlesPerSourcePerHour || 3))
+  );
 
   for (const src of sources) {
+    let importedForSource = 0;
     try {
       // قراءة رابط الـ RSS
       const sourceRssUrl = (src as any).rss_url || src.rssUrl;
@@ -336,8 +341,9 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
         return timeB - timeA;
       });
 
-      // 2. معالجة كافة المقالات الجديدة غير المستوردة في الـ RSS دون حد مصطنع
+      // Process only the configured number of fresh articles for this source.
       for (const feedItem of sortedItems) {
+        if (importedForSource >= perSourceLimit) break;
         const rawPubDate = feedItem.pubDate || feedItem.isoDate || feedItem.dcDate || new Date().toISOString();
         const itemDate = new Date(rawPubDate);
         const now = new Date();
@@ -531,6 +537,7 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
 
         db.createArticle(newArticle);
         totalImported++;
+        importedForSource++;
 
         db.updateSource(src.id, {
           lastImport: new Date().toISOString(),
@@ -562,6 +569,6 @@ export async function runRssImportJob(sourceId?: string): Promise<{ success: boo
   return {
     success: true,
     count: totalImported,
-    logMessage: `RSS import complete. ${totalImported} fresh English articles ingested from verified feed/page content with grounded SEO metadata.`,
+    logMessage: `RSS import complete. ${totalImported} fresh English articles ingested with a limit of ${perSourceLimit} article(s) per source for this cycle.`,
   };
 }

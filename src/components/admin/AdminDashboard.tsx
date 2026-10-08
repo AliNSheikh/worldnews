@@ -69,6 +69,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
 
   // Modal editing state
   const [editingArticle, setEditingArticle] = useState<Partial<Article> | null>(null);
@@ -128,14 +130,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage('Starting full feed drain with no fixed article cap...');
+    setCrawlerActionMessage('Starting hourly-style crawl using the configured per-source article limit...');
     let total = 0;
     let cycles = 0;
     let hasMore = true;
     try {
       while (hasMore) {
         cycles += 1;
-        const res = await fetch('/api/crawler/run-now?batch=30', { method: 'POST' });
+        const res = await fetch('/api/crawler/run-now', { method: 'POST' });
         const raw = await res.text();
         let data: any = {};
         try {
@@ -149,7 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         total += Number(data.newArticlesCount || data.count || 0);
         hasMore = Boolean(data.hasMore);
         setCrawlerActionMessage(
-          `Batch ${cycles}: persisted ${data.count || 0} article(s). Total this manual run: ${total}.${hasMore ? ' Continuing automatically…' : ' Feed drain complete.'}`
+          `Batch ${cycles}: persisted ${data.count || 0} article(s). Total this manual run: ${total}.${hasMore ? ' Continuing automatically…' : ' Crawl cycle complete.'}`
         );
         if (hasMore) {
           await new Promise((resolve) => setTimeout(resolve, 500));
@@ -283,28 +285,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Filtered Articles
-  const filteredArticles = articles.filter((art) => {
-    if (categoryFilter !== 'all' && art.category !== categoryFilter) return false;
-    if (statusFilter !== 'all' && art.status !== statusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const match =
-        Object.values(art.translations).some(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            t.executiveSummary.toLowerCase().includes(q) ||
-            t.structuredBody.toLowerCase().includes(q) ||
-            t.metaDescription.toLowerCase().includes(q) ||
-            (t.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
-        ) ||
-        art.byline.toLowerCase().includes(q) ||
-        art.originalSource.toLowerCase().includes(q) ||
-        art.originalUrl.toLowerCase().includes(q);
-      if (!match) return false;
-    }
-    return true;
-  });
+  // Filtered & sorted articles
+  const filteredArticles = articles
+    .filter((art) => {
+      if (categoryFilter !== 'all' && art.category !== categoryFilter) return false;
+      if (statusFilter !== 'all' && art.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && art.originalSource !== sourceFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const match =
+          Object.values(art.translations).some(
+            (t) =>
+              t.title.toLowerCase().includes(q) ||
+              t.executiveSummary.toLowerCase().includes(q) ||
+              t.structuredBody.toLowerCase().includes(q) ||
+              t.metaDescription.toLowerCase().includes(q) ||
+              (t.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
+          ) ||
+          art.byline.toLowerCase().includes(q) ||
+          art.originalSource.toLowerCase().includes(q) ||
+          art.originalUrl.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.publishedAt).getTime();
+      const bTime = new Date(b.publishedAt).getTime();
+      return dateSort === 'newest' ? bTime - aTime : aTime - bTime;
+    });
 
   const handleSaveArticle = async (articleData: Partial<Article>) => {
     try {
@@ -547,7 +556,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-white">Source-direct publishing mode</h3>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Automated imports no longer depend on Gemini. News Discover stores source-derived headline, article text, original image metadata, publication date, and automatically generated SEO title/description in Appwrite. Use the search box below to find any article, then edit or delete it directly.
+                    News Discover stores fetched article content, source metadata, publication dates, and SEO fields directly in Turso. Use the search box and filters below to find, edit, or delete any stored article.
                   </p>
                 </div>
               </div>
@@ -590,6 +599,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <option value="review">Review</option>
                   <option value="draft">Draft</option>
                   <option value="archived">Archived</option>
+                </select>
+
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 max-w-[220px]"
+                  title="Filter articles by source"
+                >
+                  <option value="all">All Sources</option>
+                  {[...new Set(articles.map((article) => article.originalSource).filter(Boolean))]
+                    .sort((a, b) => a.localeCompare(b))
+                    .map((sourceName) => (
+                      <option key={sourceName} value={sourceName}>
+                        {sourceName}
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={dateSort}
+                  onChange={(e) => setDateSort(e.target.value as 'newest' | 'oldest')}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+                  title="Sort articles by publication date"
+                >
+                  <option value="newest">Newest → Oldest</option>
+                  <option value="oldest">Oldest → Newest</option>
                 </select>
 
                 <button
@@ -879,7 +914,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, English editorial content, and SEO metadata.
+                    A scheduled hourly crawler checks each active RSS/Atom source for stories published in the previous 60 minutes. Each source is capped by the control-panel limit, and imported articles are persisted directly to Turso.
                   </p>
                 </div>
 
@@ -924,7 +959,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="text-xl font-black text-slate-900">Every 60 Mins</div>
                 <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
                   <Check className="w-3 h-3" />
-                  <span>Appwrite scheduled function active</span>
+                  <span>Hourly scheduler + Turso persistence</span>
                 </div>
               </div>
 

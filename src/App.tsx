@@ -20,6 +20,38 @@ import { analytics } from './utils/analytics';
 import { getArticleTranslation, hasCompleteTranslation } from './utils/articleTranslation';
 import { NewsDiscoverHome } from './components/NewsDiscoverHome';
 
+function injectTrustedHtml(code: string, target: HTMLElement, slot: string): () => void {
+  const selector = `[data-admin-injected="${slot}"]`;
+  target.querySelectorAll(selector).forEach((node) => node.remove());
+  if (!code.trim()) return () => {};
+
+  const template = document.createElement('template');
+  template.innerHTML = code.trim();
+  const inserted: Element[] = [];
+
+  Array.from(template.content.childNodes).forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()) return;
+
+    let created: Node;
+    if (node instanceof HTMLScriptElement) {
+      const script = document.createElement('script');
+      Array.from(node.attributes).forEach((attr) => script.setAttribute(attr.name, attr.value));
+      script.text = node.text;
+      created = script;
+    } else {
+      created = node.cloneNode(true);
+    }
+
+    if (created instanceof Element) {
+      created.setAttribute('data-admin-injected', slot);
+      inserted.push(created);
+    }
+    target.appendChild(created);
+  });
+
+  return () => inserted.forEach((node) => node.remove());
+}
+
 export function App() {
   // Navigation & View States
   const currentLang: LanguageCode = 'en';
@@ -52,12 +84,17 @@ export function App() {
   const fetchArticles = useCallback(async () => {
     setIsLoadingArticles(true);
     try {
-      const res = await fetch('/api/articles?status=published&limit=12&offset=0', { cache: 'no-store' });
+      const adminMode =
+        isAdminOpen || (typeof window !== 'undefined' && window.location.pathname === '/admin');
+      const endpoint = adminMode
+        ? '/api/articles'
+        : '/api/articles?status=published&limit=12&offset=0';
+      const res = await fetch(endpoint, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const firstPage = Array.isArray(data) ? data : [];
         setArticles(firstPage);
-        setHasMoreArticles(firstPage.length === 12);
+        setHasMoreArticles(!adminMode && firstPage.length === 12);
       } else {
         setArticles([]);
         setHasMoreArticles(false);
@@ -68,7 +105,7 @@ export function App() {
     } finally {
       setIsLoadingArticles(false);
     }
-  }, []);
+  }, [isAdminOpen]);
 
   const loadMoreArticles = useCallback(async () => {
     if (isLoadingArticles || isLoadingMoreArticles || !hasMoreArticles || articles.length >= 50) return;
@@ -165,6 +202,35 @@ export function App() {
     }
   }, [settings.googleAnalyticsMeasurementId]);
 
+  // Apply favicon and trusted advertising snippets configured by the administrator.
+  useEffect(() => {
+    let favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.appendChild(favicon);
+    }
+    if (settings.faviconImage) {
+      favicon.removeAttribute('type');
+      favicon.href = settings.faviconImage;
+    }
+  }, [settings.faviconImage]);
+
+  useEffect(() => {
+    if (isAdminOpen) {
+      document.head.querySelectorAll('[data-admin-injected="adsense-head"]').forEach((node) => node.remove());
+      document.body.querySelectorAll('[data-admin-injected="adsense-body"]').forEach((node) => node.remove());
+      return;
+    }
+
+    const removeHead = injectTrustedHtml(settings.adsenseHeadCode || '', document.head, 'adsense-head');
+    const removeBody = injectTrustedHtml(settings.adsenseBodyCode || '', document.body, 'adsense-body');
+    return () => {
+      removeHead();
+      removeBody();
+    };
+  }, [settings.adsenseHeadCode, settings.adsenseBodyCode, isAdminOpen]);
+
   // Handle URL parsing on load & browser history
   useEffect(() => {
     const handleUrlChange = () => {
@@ -216,8 +282,9 @@ export function App() {
     if (!activeArticle && !isAdminOpen) {
       if (selectedCategory === 'all') {
         updatePageSEO({
-          title: settings.names.en || 'News Discover',
-          description: settings.descriptions.en || '24/7 International Digital Newsroom',
+          title: settings.homepageSeoTitle || settings.names.en || 'News Discover',
+          description: settings.homepageSeoDescription || settings.descriptions.en || '24/7 International Digital Newsroom',
+          keywords: settings.homepageSeoKeywords || [],
           lang: 'en',
           canonicalPath: '/',
           siteSettings: settings,
