@@ -7,6 +7,8 @@ import {
   SiteSettings,
 } from '../src/types';
 import { ensureTursoSchema, getTursoClient, isTursoConfigured } from './turso';
+import { INITIAL_CATEGORIES, INITIAL_SITE_SETTINGS } from '../src/data/initialData';
+import { PRODUCTION_NEWS_SOURCES } from './productionSources';
 
 type ArticleQuery = {
   status?: string;
@@ -64,12 +66,6 @@ async function ensureDefaults() {
     const needsSettings = Number(settingsCount.rows[0]?.total || 0) === 0;
 
     if (!needsCategories && !needsSources && !needsSettings) return;
-
-    const [{ INITIAL_CATEGORIES, INITIAL_SITE_SETTINGS }, { PRODUCTION_NEWS_SOURCES }] =
-      await Promise.all([
-        import('../src/data/initialData'),
-        import('./productionSources'),
-      ]);
 
     const statements: Array<{ sql: string; args: any[] }> = [];
 

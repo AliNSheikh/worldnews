@@ -6,6 +6,7 @@ import type {
   NewsSource,
   SiteSettings,
 } from '../src/types';
+import { tursoRepository } from '../server/tursoRepository';
 
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';
@@ -163,8 +164,7 @@ export default async function handler(req: any, res: any) {
     const id = url.searchParams.get('id');
     const method = String(req.method || 'GET').toUpperCase();
 
-    stage = 'load-turso-repository';
-    const { tursoRepository } = await import('../server/tursoRepository');
+    stage = 'validate-turso-configuration';
 
     if (!tursoRepository.isConfigured()) {
       throw new Error('Turso environment variables are not configured in this deployment.');

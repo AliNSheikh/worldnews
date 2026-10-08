@@ -1,4 +1,8 @@
 import crypto from 'crypto';
+import { db } from '../server/db';
+import { getPersistenceProvider } from '../server/persistence';
+import { fetchAndParseRssFeed, runRssImportJob } from '../server/rss';
+import { getCrawlerStatus, runCrawlerCycle } from '../server/crawler';
 
 export const maxDuration = 60;
 const COOKIE = 'world_news_admin_session';
@@ -69,18 +73,11 @@ export default async function handler(req: any, res: any) {
     const sourceId = String(url.searchParams.get('id') || '');
     const method = String(req.method || 'GET').toUpperCase();
 
-    stage = 'load-db-module';
-    const { db } = await import('../server/db');
-
-    stage = 'load-persistence-module';
-    const { getPersistenceProvider } = await import('../server/persistence');
-
     stage = 'hydrate-database';
     await db.refresh(action === 'status' ? 15000 : 5000);
 
     if (action === 'status') {
-      stage = 'load-crawler-status-module';
-      const { getCrawlerStatus } = await import('../server/crawler');
+      stage = 'read-crawler-status';
       const crawler = getCrawlerStatus();
       const logs = db.getLogs();
       const latest = logs[0] || null;
@@ -118,9 +115,6 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      stage = 'load-crawler-module';
-      const { runCrawlerCycle } = await import('../server/crawler');
-
       stage = 'run-crawler-cycle';
       const result = await runCrawlerCycle();
 
@@ -148,9 +142,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'test') {
-      stage = 'load-rss-module';
-      const { fetchAndParseRssFeed } = await import('../server/rss');
-
+      stage = 'resolve-source';
       const source = db.getSources().find((item) => item.id === sourceId);
       if (!source) return json(res, 404, { error: 'Source not found.' });
 
@@ -173,9 +165,6 @@ export default async function handler(req: any, res: any) {
     if (action === 'import') {
       if (!sourceId) return json(res, 400, { error: 'Source id is required.' });
 
-      stage = 'load-rss-import-module';
-      const { runRssImportJob } = await import('../server/rss');
-
       stage = 'run-rss-import';
       const result = await runRssImportJob(sourceId);
 
@@ -191,9 +180,6 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'run') {
-      stage = 'load-crawler-module';
-      const { runCrawlerCycle } = await import('../server/crawler');
-
       stage = 'run-crawler-cycle';
       const result = await runCrawlerCycle();
 
