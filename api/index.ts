@@ -202,7 +202,8 @@ async function handleCoreRoutes(req: any, res: any, pathname: string): Promise<b
       sourcesCount: db.sources.length,
       persistence: db.getPersistenceStatus(),
       persistenceProvider: getPersistenceProvider(),
-      appwriteApiKeyConfigured: Boolean(process.env.APPWRITE_API_KEY),
+      tursoDatabaseUrlConfigured: Boolean(process.env.TURSO_DATABASE_URL),
+      tursoAuthTokenConfigured: Boolean(process.env.TURSO_AUTH_TOKEN || process.env.TURSO_DATABASE_AUTH_TOKEN),
       geminiApiKeyConfigured: Boolean(process.env.GEMINI_API_KEY),
     });
     return true;
