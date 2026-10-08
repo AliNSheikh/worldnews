@@ -1,4 +1,4 @@
-import { createClient, type Client } from '@libsql/client';
+import { createClient } from '@libsql/client';
 
 function cleanEnv(value: string | undefined): string {
   return String(value || '').trim().replace(/^['"]+|['"]+$/g, '');
@@ -9,7 +9,7 @@ export const TURSO_AUTH_TOKEN = cleanEnv(
   process.env.TURSO_AUTH_TOKEN || process.env.TURSO_DATABASE_AUTH_TOKEN
 );
 
-let client: Client | null = null;
+let client: ReturnType<typeof createClient> | null = null;
 let schemaPromise: Promise<void> | null = null;
 
 export function isTursoConfigured(): boolean {
@@ -52,9 +52,8 @@ export async function ensureTursoSchema(): Promise<void> {
           updated_at TEXT,
           payload TEXT NOT NULL
         )`,
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_newsroom_articles_original_url
-          ON newsroom_articles(original_url)
-          WHERE original_url IS NOT NULL AND original_url <> ''`,
+        `CREATE INDEX IF NOT EXISTS idx_newsroom_articles_original_url
+          ON newsroom_articles(original_url)`,
         `CREATE INDEX IF NOT EXISTS idx_newsroom_articles_category
           ON newsroom_articles(category)`,
         `CREATE INDEX IF NOT EXISTS idx_newsroom_articles_status
