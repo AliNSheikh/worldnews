@@ -184,6 +184,40 @@ export function App() {
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
 
+  // Keep an already-open homepage/dashboard synchronized with the hourly crawler.
+  useEffect(() => {
+    const refreshLiveData = () => {
+      if (selectedCategory === 'all' || isAdminOpen) {
+        fetchArticles();
+      }
+      fetchCategories();
+      fetchSources();
+      fetchSettings();
+      fetchLogs();
+    };
+
+    const intervalId = window.setInterval(refreshLiveData, 60 * 60 * 1000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshLiveData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [
+    selectedCategory,
+    isAdminOpen,
+    fetchArticles,
+    fetchCategories,
+    fetchSources,
+    fetchSettings,
+    fetchLogs,
+  ]);
+
   useEffect(() => {
     if (isAdminOpen || selectedCategory === 'all') return;
 
