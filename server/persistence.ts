@@ -1,4 +1,3 @@
-import { Query } from 'node-appwrite';
 import {
   Article,
   AutomationLog,
@@ -7,13 +6,7 @@ import {
   NewsSource,
   SiteSettings,
 } from '../src/types';
-import {
-  APPWRITE_DATABASE_ID,
-  APPWRITE_TABLES,
-  getAppwriteTablesDb,
-  isAppwriteConfigured,
-  toAppwriteRowId,
-} from './appwrite';
+import { ensureTursoSchema, getTursoClient, isTursoConfigured } from './turso';
 
 export interface PersistenceSnapshot {
   articles: Article[];
@@ -24,37 +17,23 @@ export interface PersistenceSnapshot {
   settings: SiteSettings | null;
 }
 
-type PersistenceProvider = 'appwrite' | 'supabase' | 'memory';
+type PersistenceProvider = 'turso' | 'memory';
 
-type SupabaseRowWithPayload<T> = {
-  id: string;
-  payload: T;
-};
-
-type AppwritePayloadRow = {
-  payload?: unknown;
-  data?: {
-    payload?: unknown;
-    [key: string]: unknown;
-  } | null;
-  [key: string]: unknown;
-};
-
-const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-function isSupabaseConfigured(): boolean {
-  return Boolean(supabaseUrl && serviceRoleKey);
-}
+const tableMap = {
+  articles: 'newsroom_articles',
+  categories: 'newsroom_categories',
+  sources: 'newsroom_sources',
+  comments: 'newsroom_comments',
+  logs: 'newsroom_logs',
+  settings: 'newsroom_settings',
+} as const;
 
 export function getPersistenceProvider(): PersistenceProvider {
-  if (isAppwriteConfigured()) return 'appwrite';
-  if (isSupabaseConfigured()) return 'supabase';
-  return 'memory';
+  return isTursoConfigured() ? 'turso' : 'memory';
 }
 
 export function isPersistenceConfigured(): boolean {
-  return getPersistenceProvider() !== 'memory';
+  return isTursoConfigured();
 }
 
 function emptySnapshot(): PersistenceSnapshot {
@@ -69,170 +48,24 @@ function emptySnapshot(): PersistenceSnapshot {
 }
 
 function parsePayload<T>(payload: unknown): T | null {
-  if (!payload) return null;
+  if (payload == null) return null;
   if (typeof payload === 'object') return payload as T;
-
-  if (typeof payload === 'string') {
-    try {
-      return JSON.parse(payload) as T;
-    } catch (error) {
-      console.error('[World News DB] Invalid JSON payload in persistence row:', error);
-    }
+  try {
+    return JSON.parse(String(payload)) as T;
+  } catch (error) {
+    console.error('[World News DB] Invalid JSON payload in Turso row:', error);
+    return null;
   }
-
-  return null;
 }
-
-/**
- * Appwrite TablesDB responses can expose user columns either directly on the
- * row object or nested under `row.data`, depending on the SDK/API response
- * shape. Support both forms so persisted newsroom data hydrates reliably.
- */
-function getAppwriteRowPayload(row: unknown): unknown {
-  if (!row || typeof row !== 'object') return undefined;
-  const candidate = row as AppwritePayloadRow;
-
-  if (candidate.payload !== undefined) return candidate.payload;
-  if (candidate.data && typeof candidate.data === 'object') {
-    return candidate.data.payload;
-  }
-
-  return undefined;
-}
-
-async function listAppwritePayloads<T>(tableId: string): Promise<T[]> {
-  const tablesDb = getAppwriteTablesDb();
-  const pageSize = 1000;
-  const output: T[] = [];
-
-  for (let offset = 0; ; offset += pageSize) {
-    const page = await tablesDb.listRows({
-      databaseId: APPWRITE_DATABASE_ID,
-      tableId,
-      queries: [Query.limit(pageSize), Query.offset(offset)],
-      total: false,
-      ttl: 0,
-    });
-
-    for (const row of page.rows) {
-      const parsed = parsePayload<T>(getAppwriteRowPayload(row));
-      if (parsed) output.push(parsed);
-    }
-
-    if (page.rows.length < pageSize) break;
-  }
-
-  return output;
-}
-
-async function upsertAppwritePayload(tableId: string, id: string, payload: unknown): Promise<void> {
-  const tablesDb = getAppwriteTablesDb();
-  await tablesDb.upsertRow({
-    databaseId: APPWRITE_DATABASE_ID,
-    tableId,
-    rowId: toAppwriteRowId(id),
-    data: {
-      payload: JSON.stringify(payload),
-    },
-  });
-}
-
-async function deleteAppwriteRow(tableId: string, id: string): Promise<void> {
-  const tablesDb = getAppwriteTablesDb();
-  await tablesDb.deleteRow({
-    databaseId: APPWRITE_DATABASE_ID,
-    tableId,
-    rowId: toAppwriteRowId(id),
-  });
-}
-
-function supabaseHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
-    'Content-Type': 'application/json',
-    ...extra,
-  };
-}
-
-async function supabaseRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase fallback persistence is not configured.');
-  }
-
-  const requestHeaders = new Headers(supabaseHeaders());
-  const extraHeaders = new Headers(init.headers || {});
-  extraHeaders.forEach((value, key) => requestHeaders.set(key, value));
-
-  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
-    ...init,
-    headers: requestHeaders,
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(
-      `Supabase REST request failed (${response.status} ${response.statusText}): ${body.slice(0, 600)}`
-    );
-  }
-
-  return response;
-}
-
-async function selectSupabasePayloads<T>(table: string): Promise<T[]> {
-  const response = await supabaseRequest(`${table}?select=id,payload`);
-  const rows = (await response.json()) as SupabaseRowWithPayload<T>[];
-  return rows.map((row) => row.payload).filter(Boolean);
-}
-
-async function upsertSupabasePayload(
-  table: string,
-  record: {
-    id: string;
-    payload: unknown;
-    original_url?: string | null;
-    category?: string | null;
-    status?: string | null;
-    published_at?: string | null;
-    updated_at?: string | null;
-  }
-): Promise<void> {
-  await supabaseRequest(`${table}?on_conflict=id`, {
-    method: 'POST',
-    headers: {
-      Prefer: 'resolution=merge-duplicates,return=minimal',
-    },
-    body: JSON.stringify(record),
-  });
-}
-
-async function deleteSupabaseById(table: string, id: string): Promise<void> {
-  await supabaseRequest(`${table}?id=eq.${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: {
-      Prefer: 'return=minimal',
-    },
-  });
-}
-
-const tableMap = {
-  articles: { appwrite: APPWRITE_TABLES.articles, supabase: 'newsroom_articles' },
-  categories: { appwrite: APPWRITE_TABLES.categories, supabase: 'newsroom_categories' },
-  sources: { appwrite: APPWRITE_TABLES.sources, supabase: 'newsroom_sources' },
-  comments: { appwrite: APPWRITE_TABLES.comments, supabase: 'newsroom_comments' },
-  logs: { appwrite: APPWRITE_TABLES.logs, supabase: 'newsroom_logs' },
-  settings: { appwrite: APPWRITE_TABLES.settings, supabase: 'newsroom_settings' },
-} as const;
 
 async function selectPayloads<T>(key: keyof typeof tableMap): Promise<T[]> {
-  const provider = getPersistenceProvider();
-  if (provider === 'appwrite') {
-    return listAppwritePayloads<T>(tableMap[key].appwrite);
-  }
-  if (provider === 'supabase') {
-    return selectSupabasePayloads<T>(tableMap[key].supabase);
-  }
-  return [];
+  if (!isTursoConfigured()) return [];
+  await ensureTursoSchema();
+  const db = getTursoClient();
+  const result = await db.execute(`SELECT payload FROM ${tableMap[key]}`);
+  return result.rows
+    .map((row) => parsePayload<T>(row.payload))
+    .filter((row): row is T => Boolean(row));
 }
 
 async function upsertPayload(
@@ -247,25 +80,52 @@ async function upsertPayload(
     updated_at?: string | null;
   }
 ): Promise<void> {
-  const provider = getPersistenceProvider();
-  if (provider === 'appwrite') {
-    await upsertAppwritePayload(tableMap[key].appwrite, record.id, record.payload);
+  if (!isTursoConfigured()) return;
+  await ensureTursoSchema();
+  const db = getTursoClient();
+  const payload = JSON.stringify(record.payload);
+
+  if (key === 'articles') {
+    await db.execute({
+      sql: `INSERT INTO newsroom_articles
+        (id, original_url, category, status, published_at, updated_at, payload)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          original_url = excluded.original_url,
+          category = excluded.category,
+          status = excluded.status,
+          published_at = excluded.published_at,
+          updated_at = excluded.updated_at,
+          payload = excluded.payload`,
+      args: [
+        record.id,
+        record.original_url || null,
+        record.category || null,
+        record.status || null,
+        record.published_at || null,
+        record.updated_at || null,
+        payload,
+      ],
+    });
     return;
   }
-  if (provider === 'supabase') {
-    await upsertSupabasePayload(tableMap[key].supabase, record);
-  }
+
+  await db.execute({
+    sql: `INSERT INTO ${tableMap[key]} (id, payload)
+      VALUES (?, ?)
+      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload`,
+    args: [record.id, payload],
+  });
 }
 
 async function deleteById(key: keyof typeof tableMap, id: string): Promise<void> {
-  const provider = getPersistenceProvider();
-  if (provider === 'appwrite') {
-    await deleteAppwriteRow(tableMap[key].appwrite, id);
-    return;
-  }
-  if (provider === 'supabase') {
-    await deleteSupabaseById(tableMap[key].supabase, id);
-  }
+  if (!isTursoConfigured()) return;
+  await ensureTursoSchema();
+  const db = getTursoClient();
+  await db.execute({
+    sql: `DELETE FROM ${tableMap[key]} WHERE id = ?`,
+    args: [id],
+  });
 }
 
 async function loadSettings(): Promise<SiteSettings | null> {
@@ -276,6 +136,7 @@ async function loadSettings(): Promise<SiteSettings | null> {
 export const persistence = {
   async loadSnapshot(): Promise<PersistenceSnapshot> {
     if (!isPersistenceConfigured()) return emptySnapshot();
+    await ensureTursoSchema();
 
     const [articles, categories, sources, comments, logs, settings] = await Promise.all([
       selectPayloads<Article>('articles'),
