@@ -57,7 +57,7 @@ export default async function handler(req: any, res: any) {
     const id = url.searchParams.get('id');
     const method = String(req.method || 'GET').toUpperCase();
 
-    await db.refresh(0);
+    await db.refresh(5000);
 
     if (method !== 'GET' && !isAdmin(req)) {
       return json(res, 401, { error: 'Administrator authentication required.' });
