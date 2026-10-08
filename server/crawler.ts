@@ -159,7 +159,7 @@ export async function runCrawlerCycle(): Promise<CrawlerRunResult> {
   const diagnostics: CrawlerSourceDiagnostic[] = [];
 
   try {
-    await db.refresh(0);
+    await db.refresh(5000);
     const activeSources = db.getSources().filter((source) => source.isActive && source.rssUrl);
     const perSourceLimit = Math.max(
       1,
