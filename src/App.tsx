@@ -84,7 +84,8 @@ export function App() {
   const fetchArticles = useCallback(async () => {
     setIsLoadingArticles(true);
     try {
-      const adminMode = typeof window !== 'undefined' && window.location.pathname === '/admin';
+      const adminMode =
+        isAdminOpen || (typeof window !== 'undefined' && window.location.pathname === '/admin');
       const endpoint = adminMode
         ? '/api/articles'
         : '/api/articles?status=published&limit=12&offset=0';
@@ -104,7 +105,7 @@ export function App() {
     } finally {
       setIsLoadingArticles(false);
     }
-  }, []);
+  }, [isAdminOpen]);
 
   const loadMoreArticles = useCallback(async () => {
     if (isLoadingArticles || isLoadingMoreArticles || !hasMoreArticles || articles.length >= 50) return;
