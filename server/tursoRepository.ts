@@ -45,9 +45,74 @@ function safeOffset(value: number | undefined) {
   return Math.max(0, Math.floor(parsed));
 }
 
+let defaultsPromise: Promise<void> | null = null;
+
+async function ensureDefaults() {
+  if (defaultsPromise) return defaultsPromise;
+
+  defaultsPromise = (async () => {
+    const db = getTursoClient();
+
+    const [categoryCount, sourceCount, settingsCount] = await Promise.all([
+      db.execute('SELECT COUNT(*) AS total FROM newsroom_categories'),
+      db.execute('SELECT COUNT(*) AS total FROM newsroom_sources'),
+      db.execute("SELECT COUNT(*) AS total FROM newsroom_settings WHERE id = 'default'"),
+    ]);
+
+    const needsCategories = Number(categoryCount.rows[0]?.total || 0) === 0;
+    const needsSources = Number(sourceCount.rows[0]?.total || 0) === 0;
+    const needsSettings = Number(settingsCount.rows[0]?.total || 0) === 0;
+
+    if (!needsCategories && !needsSources && !needsSettings) return;
+
+    const [{ INITIAL_CATEGORIES, INITIAL_SITE_SETTINGS }, { PRODUCTION_NEWS_SOURCES }] =
+      await Promise.all([
+        import('../src/data/initialData'),
+        import('./productionSources'),
+      ]);
+
+    const statements: Array<{ sql: string; args: any[] }> = [];
+
+    if (needsCategories) {
+      for (const category of INITIAL_CATEGORIES) {
+        statements.push({
+          sql: 'INSERT INTO newsroom_categories (id, payload) VALUES (?, ?) ON CONFLICT(id) DO NOTHING',
+          args: [category.id, JSON.stringify(category)],
+        });
+      }
+    }
+
+    if (needsSources) {
+      for (const source of PRODUCTION_NEWS_SOURCES) {
+        statements.push({
+          sql: 'INSERT INTO newsroom_sources (id, payload) VALUES (?, ?) ON CONFLICT(id) DO NOTHING',
+          args: [source.id, JSON.stringify(source)],
+        });
+      }
+    }
+
+    if (needsSettings) {
+      statements.push({
+        sql: "INSERT INTO newsroom_settings (id, payload) VALUES ('default', ?) ON CONFLICT(id) DO NOTHING",
+        args: [JSON.stringify(INITIAL_SITE_SETTINGS)],
+      });
+    }
+
+    if (statements.length) {
+      await db.batch(statements, 'write');
+    }
+  })().catch((error) => {
+    defaultsPromise = null;
+    throw error;
+  });
+
+  return defaultsPromise;
+}
+
 async function ready() {
   requireTurso();
   await ensureTursoSchema();
+  await ensureDefaults();
   return getTursoClient();
 }
 
