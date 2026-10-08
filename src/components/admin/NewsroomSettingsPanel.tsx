@@ -16,6 +16,9 @@ import {
   Sparkles,
   RefreshCw,
   AlertCircle,
+  Image as ImageIcon,
+  Code2,
+  Gauge,
 } from 'lucide-react';
 import { SiteSettings, AutomationLog } from '../../types';
 import { HeroSliderManager } from './HeroSliderManager';
@@ -46,6 +49,37 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
   const [siteUrl, setSiteUrl] = useState(settings.siteUrl || '');
   const [gscToken, setGscToken] = useState(settings.googleSearchConsoleVerification || '');
   const [gaId, setGaId] = useState(settings.googleAnalyticsMeasurementId || '');
+  const [logoImage, setLogoImage] = useState(settings.logoImage || '');
+  const [faviconImage, setFaviconImage] = useState(settings.faviconImage || '');
+  const [homepageSeoTitle, setHomepageSeoTitle] = useState(settings.homepageSeoTitle || '');
+  const [homepageSeoDescription, setHomepageSeoDescription] = useState(settings.homepageSeoDescription || '');
+  const [homepageSeoKeywords, setHomepageSeoKeywords] = useState(
+    (settings.homepageSeoKeywords || []).join(', ')
+  );
+  const [adsenseHeadCode, setAdsenseHeadCode] = useState(settings.adsenseHeadCode || '');
+  const [adsenseBodyCode, setAdsenseBodyCode] = useState(settings.adsenseBodyCode || '');
+  const [articlesPerSourcePerHour, setArticlesPerSourcePerHour] = useState(
+    Math.max(1, Math.min(20, Number(settings.articlesPerSourcePerHour || 3)))
+  );
+
+  const handleImageUpload = (
+    file: File | undefined,
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    maxBytes: number
+  ) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file.');
+      return;
+    }
+    if (file.size > maxBytes) {
+      alert(`Image is too large. Maximum size is ${Math.round(maxBytes / 1024)} KB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setter(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  };
 
   // UI State
   const [saving, setSaving] = useState(false);
@@ -75,6 +109,18 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
         siteUrl: siteUrl.trim().replace(/\/$/, ''),
         googleSearchConsoleVerification: gscToken.trim(),
         googleAnalyticsMeasurementId: gaId.trim(),
+        logoImage,
+        faviconImage,
+        homepageSeoTitle: homepageSeoTitle.trim(),
+        homepageSeoDescription: homepageSeoDescription.trim(),
+        homepageSeoKeywords: homepageSeoKeywords
+          .split(',')
+          .map((keyword) => keyword.trim())
+          .filter(Boolean)
+          .slice(0, 30),
+        adsenseHeadCode,
+        adsenseBodyCode,
+        articlesPerSourcePerHour: Math.max(1, Math.min(20, Number(articlesPerSourcePerHour || 3))),
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
@@ -104,6 +150,91 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           </button>
         </div>
 
+        {/* Branding & Homepage SEO */}
+        <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl space-y-4">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-amber-700" />
+            <h4 className="font-bold text-xs uppercase tracking-wider text-amber-950">
+              Branding & Homepage SEO
+            </h4>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+              <label className="text-xs font-bold text-slate-800">Homepage Logo</label>
+              {logoImage && <img src={logoImage} alt="Current site logo" className="h-12 max-w-full object-contain" />}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                onChange={(e) => handleImageUpload(e.target.files?.[0], setLogoImage, 1024 * 1024)}
+                className="block w-full text-xs"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={logoImage}
+                  onChange={(e) => setLogoImage(e.target.value)}
+                  placeholder="Or paste a logo image URL"
+                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                {logoImage && (
+                  <button type="button" onClick={() => setLogoImage('')} className="px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg">
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">Uploads are stored in site settings. Keep the logo under 1 MB.</p>
+            </div>
+
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+              <label className="text-xs font-bold text-slate-800">Site Icon / Favicon</label>
+              {faviconImage && <img src={faviconImage} alt="Current favicon" className="w-10 h-10 object-contain" />}
+              <input
+                type="file"
+                accept="image/png,image/x-icon,image/svg+xml,image/webp"
+                onChange={(e) => handleImageUpload(e.target.files?.[0], setFaviconImage, 256 * 1024)}
+                className="block w-full text-xs"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={faviconImage}
+                  onChange={(e) => setFaviconImage(e.target.value)}
+                  placeholder="Or paste a favicon URL"
+                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                />
+                {faviconImage && (
+                  <button type="button" onClick={() => setFaviconImage('')} className="px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg">
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">Recommended: square PNG, ICO, SVG, or WebP under 256 KB.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            <input
+              value={homepageSeoTitle}
+              onChange={(e) => setHomepageSeoTitle(e.target.value)}
+              maxLength={80}
+              placeholder="Homepage SEO title"
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+            />
+            <textarea
+              value={homepageSeoDescription}
+              onChange={(e) => setHomepageSeoDescription(e.target.value)}
+              maxLength={180}
+              rows={3}
+              placeholder="Homepage meta description"
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+            />
+            <input
+              value={homepageSeoKeywords}
+              onChange={(e) => setHomepageSeoKeywords(e.target.value)}
+              placeholder="world news, international news, breaking news"
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+            />
+          </div>
+        </div>
+
         {/* Google Search Console & Google Analytics Section */}
         <div className="p-4 bg-sky-50/60 border border-sky-200/80 rounded-xl space-y-4">
           <div className="flex items-center gap-2">
@@ -113,7 +244,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
             </h4>
           </div>
           <p className="text-xs text-sky-900 leading-relaxed">
-            Configure the canonical News Discover domain, Search Console verification token, and GA4 measurement ID. The site exposes live Appwrite-backed sitemap, news sitemap, robots.txt, and RSS endpoints for compliant crawling.
+            Configure the canonical News Discover domain, Search Console verification token, and GA4 measurement ID. The site exposes live Turso-backed sitemap, news sitemap, robots.txt, and RSS endpoints for compliant crawling.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -271,6 +402,56 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
               />
             </div>
           </div>
+        </div>
+
+        {/* AdSense & Custom Ad Code */}
+        <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-4">
+          <div className="flex items-center gap-2">
+            <Code2 className="w-4 h-4 text-emerald-700" />
+            <h4 className="font-bold text-xs uppercase tracking-wider text-emerald-950">
+              Google AdSense / Custom Ad Code
+            </h4>
+          </div>
+          <p className="text-xs text-emerald-900">
+            Paste only trusted code from Google AdSense or another verified advertising provider. Head code is injected into &lt;head&gt;; body code is injected near the end of &lt;body&gt;.
+          </p>
+          <textarea
+            value={adsenseHeadCode}
+            onChange={(e) => setAdsenseHeadCode(e.target.value)}
+            rows={5}
+            spellCheck={false}
+            placeholder={'<script async src="https://pagead2.googlesyndication.com/..."></script>'}
+            className="w-full px-3 py-2 text-xs font-mono border border-emerald-300 rounded-lg bg-white"
+          />
+          <textarea
+            value={adsenseBodyCode}
+            onChange={(e) => setAdsenseBodyCode(e.target.value)}
+            rows={7}
+            spellCheck={false}
+            placeholder={'<ins class="adsbygoogle" ...></ins>\n<script>(adsbygoogle = window.adsbygoogle || []).push({});</script>'}
+            className="w-full px-3 py-2 text-xs font-mono border border-emerald-300 rounded-lg bg-white"
+          />
+        </div>
+
+        {/* Hourly Fetch Limit */}
+        <div className="p-4 bg-violet-50/60 border border-violet-200 rounded-xl space-y-3">
+          <div className="flex items-center gap-2">
+            <Gauge className="w-4 h-4 text-violet-700" />
+            <h4 className="font-bold text-xs uppercase tracking-wider text-violet-950">
+              Articles Per Source Per Hour
+            </h4>
+          </div>
+          <p className="text-xs text-violet-900">
+            Controls the maximum number of fresh articles imported from each active source during one hourly crawl. The crawler still ignores articles older than 60 minutes and duplicates.
+          </p>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={articlesPerSourcePerHour}
+            onChange={(e) => setArticlesPerSourcePerHour(Math.max(1, Math.min(20, Number(e.target.value || 1))))}
+            className="w-32 px-3 py-2 text-sm font-bold border border-violet-300 rounded-lg bg-white"
+          />
         </div>
 
         {/* Governance & Automation */}
