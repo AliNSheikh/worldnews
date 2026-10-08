@@ -52,8 +52,11 @@ function statusPayload() {
   const logs = db.getLogs();
   const latest = logs[0] || null;
   return {
+    status: db.persistenceError ? 'degraded' : 'healthy',
     ...crawler,
     persistenceProvider: getPersistenceProvider(),
+    tursoDatabaseUrlConfigured: Boolean(process.env.TURSO_DATABASE_URL),
+    tursoAuthTokenConfigured: Boolean(process.env.TURSO_AUTH_TOKEN || process.env.TURSO_DATABASE_AUTH_TOKEN),
     totalArticlesIngested: db.articles.length,
     lastImportedCount: latest?.importedCount || 0,
     lastRunStatus: latest?.status || null,
