@@ -77,7 +77,7 @@ export default async function handler(req: any, res: any) {
     const sourceId = String(url.searchParams.get('id') || '');
     const method = String(req.method || 'GET').toUpperCase();
 
-    await db.refresh(0);
+    await db.refresh(action === 'status' ? 15000 : 5000);
 
     if (action === 'status') {
       return json(res, 200, statusPayload());
