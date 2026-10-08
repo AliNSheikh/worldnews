@@ -87,8 +87,8 @@ export function App() {
       const adminMode =
         isAdminOpen || (typeof window !== 'undefined' && window.location.pathname === '/admin');
       const endpoint = adminMode
-        ? '/api/articles'
-        : '/api/articles?status=published&limit=12&offset=0';
+        ? '/api/articles?limit=5000&sort=newest'
+        : '/api/articles?status=published&limit=12&offset=0&sort=newest';
       const res = await fetch(endpoint, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
@@ -138,7 +138,7 @@ export function App() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch('/api/categories');
+      const res = await fetch('/api/categories', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setCategories(data);
@@ -148,7 +148,7 @@ export function App() {
 
   const fetchSources = useCallback(async () => {
     try {
-      const res = await fetch('/api/sources');
+      const res = await fetch('/api/sources', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setSources(data);
@@ -158,7 +158,7 @@ export function App() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch('/api/settings');
+      const res = await fetch('/api/settings', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setSettings(data);
@@ -168,7 +168,7 @@ export function App() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await fetch('/api/logs');
+      const res = await fetch('/api/logs', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setLogs(data);
@@ -183,6 +183,28 @@ export function App() {
     fetchSettings();
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
+
+  useEffect(() => {
+    if (isAdminOpen || selectedCategory === 'all') return;
+
+    fetch(
+      '/api/articles?status=published&category=' +
+        encodeURIComponent(selectedCategory) +
+        '&limit=50&offset=0&sort=newest',
+      { cache: 'no-store' }
+    )
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as Article[];
+      })
+      .then((items) => {
+        if (Array.isArray(items)) {
+          setArticles(items);
+          setHasMoreArticles(false);
+        }
+      })
+      .catch(() => {});
+  }, [selectedCategory, isAdminOpen]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -252,6 +274,23 @@ export function App() {
           setIsAdminOpen(false);
           return;
         }
+
+        fetch('/api/articles/' + encodeURIComponent(slug), { cache: 'no-store' })
+          .then(async (response) => {
+            if (!response.ok) return null;
+            return (await response.json()) as Article;
+          })
+          .then((article) => {
+            if (!article) return;
+            setActiveArticle(article);
+            setArticles((current) =>
+              current.some((item) => item.id === article.id) ? current : [article, ...current]
+            );
+            setSelectedCategory('all');
+            setIsAdminOpen(false);
+          })
+          .catch(() => {});
+        return;
       } else if (normalized[0] === 'category' && normalized[1]) {
         setSelectedCategory(normalized[1]);
         setActiveArticle(null);
