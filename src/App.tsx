@@ -87,8 +87,8 @@ export function App() {
       const adminMode =
         isAdminOpen || (typeof window !== 'undefined' && window.location.pathname === '/admin');
       const endpoint = adminMode
-        ? '/api/articles'
-        : '/api/articles?status=published&limit=12&offset=0';
+        ? '/api/articles?limit=5000&sort=newest'
+        : '/api/articles?status=published&limit=12&offset=0&sort=newest';
       const res = await fetch(endpoint, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
@@ -183,6 +183,28 @@ export function App() {
     fetchSettings();
     fetchLogs();
   }, [fetchArticles, fetchCategories, fetchSources, fetchSettings, fetchLogs]);
+
+  useEffect(() => {
+    if (isAdminOpen || selectedCategory === 'all') return;
+
+    fetch(
+      '/api/articles?status=published&category=' +
+        encodeURIComponent(selectedCategory) +
+        '&limit=50&offset=0&sort=newest',
+      { cache: 'no-store' }
+    )
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as Article[];
+      })
+      .then((items) => {
+        if (Array.isArray(items)) {
+          setArticles(items);
+          setHasMoreArticles(false);
+        }
+      })
+      .catch(() => {});
+  }, [selectedCategory, isAdminOpen]);
 
   useEffect(() => {
     const onScroll = () => {
