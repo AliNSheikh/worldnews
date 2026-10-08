@@ -1,5 +1,5 @@
-import { db } from '../server/db.js';
-import { generateNewsSitemapXml, generateRobotsTxt, generateRssXml } from '../server/rss.js';
+import { db } from '../server/db';
+import { generateNewsSitemapXml, generateRobotsTxt, generateRssXml } from '../server/rss';
 
 export const maxDuration = 30;
 const DEFAULT_ORIGIN = 'https://www.newsdiscover.org';

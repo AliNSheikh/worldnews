@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { db } from '../server/db.js';
+import { db } from '../server/db';
 
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';

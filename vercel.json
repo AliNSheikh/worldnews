@@ -81,7 +81,7 @@
     },
     {
       "source": "/api/health",
-      "destination": "/api/direct-crawler?action=status"
+      "destination": "/api/direct-health"
     },
     {
       "source": "/api/:path*",
