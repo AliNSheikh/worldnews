@@ -7,13 +7,18 @@ import {
   INITIAL_SITE_SETTINGS,
 } from '../src/data/initialData';
 import { PRODUCTION_NEWS_SOURCES } from './productionSources';
-import { sanitizeBoldFormatting } from './gemini';
 import { createArchiveSnapshot } from './officialMediaAndArchive';
 import {
   getPersistenceProvider,
   isPersistenceConfigured,
   persistence,
 } from './persistence';
+
+
+function sanitizeBoldFormatting(text: string): string {
+  if (!text) return '';
+  return text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+}
 
 function cleanArticlesBoldFormatting(rawArticles: Article[]): Article[] {
   return rawArticles.map((art) => {
