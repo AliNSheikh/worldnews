@@ -120,7 +120,7 @@ export default async function handler(req: any, res: any) {
     const url = new URL(req.url || '/', 'https://local');
     const kind = String(url.searchParams.get('kind') || 'sitemap-index');
 
-    await db.refresh(0);
+    await db.refresh(60000);
     const origin = originFrom(req);
 
     if (kind === 'robots') {
