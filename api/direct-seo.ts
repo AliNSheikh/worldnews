@@ -1,4 +1,5 @@
 import type { Article, Category, SiteSettings } from '../src/types';
+import { tursoRepository } from '../server/tursoRepository';
 
 export const maxDuration = 30;
 const DEFAULT_ORIGIN = 'https://www.newsdiscover.org';
@@ -194,9 +195,6 @@ export default async function handler(req: any, res: any) {
   try {
     const url = new URL(req.url || '/', 'https://local');
     const kind = String(url.searchParams.get('kind') || 'sitemap-index');
-
-    stage = 'load-turso-repository';
-    const { tursoRepository } = await import('../server/tursoRepository');
 
     stage = 'read-seo-data';
     const [settings, categories, articles] = await Promise.all([
