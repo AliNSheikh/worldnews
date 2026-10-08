@@ -17,7 +17,7 @@
     },
     {
       "source": "/api/sources/:id/test",
-      "destination": "/api/direct-crawler?action=test&id=:id"
+      "destination": "/api/direct-source-test?id=:id"
     },
     {
       "source": "/api/sources/:id/import",
