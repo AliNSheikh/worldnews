@@ -542,7 +542,7 @@ export const NewsroomSettingsPanel: React.FC<NewsroomSettingsPanelProps> = ({
           Public SEO & Syndication Feed Health
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          These endpoints are generated dynamically from Appwrite and update as soon as published articles are stored.
+          These endpoints are generated dynamically from Turso and update as soon as published articles are stored.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
