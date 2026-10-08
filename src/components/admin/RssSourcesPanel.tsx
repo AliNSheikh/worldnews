@@ -28,6 +28,29 @@ type SourceDraft = {
   defaultLanguage: string;
 };
 
+function apiErrorMessage(payload: any, status: number): string {
+  const nested = payload?.error;
+
+  if (typeof nested === 'string' && nested.trim()) {
+    return payload?.stage ? `${payload.stage}: ${nested}` : nested;
+  }
+
+  if (nested && typeof nested === 'object') {
+    const message =
+      (typeof nested.message === 'string' && nested.message.trim()) ||
+      (typeof nested.name === 'string' && nested.name.trim()) ||
+      JSON.stringify(nested);
+
+    return payload?.stage ? `${payload.stage}: ${message}` : message;
+  }
+
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload?.stage ? `${payload.stage}: ${payload.message}` : payload.message;
+  }
+
+  return `Request failed with HTTP ${status}.`;
+}
+
 async function readApiResponse(res: Response): Promise<any> {
   const raw = await res.text();
   let payload: any = {};
@@ -41,7 +64,7 @@ async function readApiResponse(res: Response): Promise<any> {
   }
 
   if (!res.ok) {
-    throw new Error(payload.error || payload.message || `Request failed with HTTP ${res.status}.`);
+    throw new Error(apiErrorMessage(payload, res.status));
   }
 
   return payload;
@@ -222,7 +245,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
       setShowAddForm(false);
       setNotice({
         type: 'success',
-        message: `Source “${created.name || newName}” was saved to Appwrite.`,
+        message: `Source “${created.name || newName}” was saved to Turso.`,
       });
       await refreshSources();
     } catch (error: unknown) {
@@ -266,7 +289,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
       setEditDraft(null);
       setNotice({
         type: 'success',
-        message: `Source “${updated.name || source.name}” was updated in Appwrite.`,
+        message: `Source “${updated.name || source.name}” was updated in Turso.`,
       });
       await refreshSources();
     } catch (error: unknown) {
@@ -291,7 +314,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
       await readApiResponse(res);
       setNotice({
         type: 'success',
-        message: `Source “${source.name}” was deleted from Appwrite.`,
+        message: `Source “${source.name}” was deleted from Turso.`,
       });
       await refreshSources();
     } catch (error: unknown) {
@@ -340,7 +363,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
             <h3 className="font-bold text-base sm:text-lg">Automated Wire Ingestion Pipeline</h3>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Sources are stored in Appwrite. A source change is only reported as successful after the database confirms the write.
+            Sources are stored in Turso. A source change is only reported as successful after the database confirms the write.
           </p>
         </div>
 
@@ -666,7 +689,7 @@ export const RssSourcesPanel: React.FC<RssSourcesPanelProps> = ({
 
           {sources.length === 0 && (
             <div className="p-8 text-center text-sm text-slate-500">
-              No persistent RSS sources are currently stored in Appwrite.
+              No persistent RSS sources are currently stored in Turso.
             </div>
           )}
         </div>
