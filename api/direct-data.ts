@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { db } from '../server/db';
 
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';
@@ -50,13 +49,35 @@ async function body(req: any): Promise<Record<string, any>> {
   return raw ? JSON.parse(raw) : {};
 }
 
+function normalizeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      cause:
+        error.cause instanceof Error
+          ? { name: error.cause.name, message: error.cause.message }
+          : error.cause
+          ? String(error.cause)
+          : undefined,
+    };
+  }
+  return { message: String(error) };
+}
+
 export default async function handler(req: any, res: any) {
+  let stage = 'request-init';
+
   try {
     const url = new URL(req.url || '/', 'https://local');
     const resource = String(url.searchParams.get('resource') || '');
     const id = url.searchParams.get('id');
     const method = String(req.method || 'GET').toUpperCase();
 
+    stage = 'load-db-module';
+    const { db } = await import('../server/db');
+
+    stage = 'hydrate-database';
     await db.refresh(5000);
 
     const publicCommentSubmission = resource === 'comments' && method === 'POST';
@@ -66,6 +87,7 @@ export default async function handler(req: any, res: any) {
 
     if (resource === 'articles') {
       if (method === 'GET') {
+        stage = 'read-articles';
         if (id) {
           const found = db.getArticleById(id) || db.getArticleBySlug(id);
           return json(res, found ? 200 : 404, found || { error: 'Article not found.' });
@@ -86,20 +108,26 @@ export default async function handler(req: any, res: any) {
       }
 
       if (method === 'POST') {
+        stage = 'create-article';
         const created = db.createArticle(await body(req));
+        stage = 'flush-article-write';
         await db.flush();
         return json(res, 201, created);
       }
 
       if ((method === 'PUT' || method === 'PATCH') && id) {
+        stage = 'update-article';
         const updated = db.updateArticle(id, await body(req));
+        stage = 'flush-article-write';
         await db.flush();
         return json(res, 200, updated);
       }
 
       if (method === 'DELETE' && id) {
+        stage = 'delete-article';
         const deleted = db.deleteArticle(id);
         if (!deleted) return json(res, 404, { error: 'Article not found.' });
+        stage = 'flush-article-write';
         await db.flush();
         return json(res, 200, { success: true });
       }
@@ -107,14 +135,18 @@ export default async function handler(req: any, res: any) {
 
     if (resource === 'categories') {
       if (method === 'GET') {
+        stage = 'read-categories';
         if (id) {
           const found = db.getCategories().find((item) => item.id === id || item.slug === id);
           return json(res, found ? 200 : 404, found || { error: 'Category not found.' });
         }
         return json(res, 200, db.getCategories());
       }
+
       if ((method === 'PUT' || method === 'PATCH') && id) {
+        stage = 'update-category';
         const updated = db.updateCategory(id, await body(req));
+        stage = 'flush-category-write';
         await db.flush();
         return json(res, 200, updated);
       }
@@ -122,6 +154,7 @@ export default async function handler(req: any, res: any) {
 
     if (resource === 'sources') {
       if (method === 'GET') {
+        stage = 'read-sources';
         const values = db.getSources();
         if (id) {
           const found = values.find((item) => item.id === id);
@@ -129,13 +162,20 @@ export default async function handler(req: any, res: any) {
         }
         return json(res, 200, values);
       }
+
       if (method === 'POST') {
+        stage = 'parse-source-input';
         const input = await body(req);
         const name = String(input.name || '').trim();
         const rssUrl = String(input.rssUrl || '').trim();
+
         if (!name || !/^https?:\/\//i.test(rssUrl)) {
-          return json(res, 400, { error: 'Source name and a valid HTTP(S) RSS URL are required.' });
+          return json(res, 400, {
+            error: 'Source name and a valid HTTP(S) RSS URL are required.',
+          });
         }
+
+        stage = 'create-source';
         const created = db.addSource({
           ...input,
           name,
@@ -151,37 +191,53 @@ export default async function handler(req: any, res: any) {
           fetchIntervalMinutes: 60,
           articlesCount: Number(input.articlesCount || 0),
         } as any);
+
+        stage = 'flush-source-write';
         await db.flush();
         return json(res, 201, created);
       }
+
       if ((method === 'PUT' || method === 'PATCH') && id) {
+        stage = 'update-source';
         const updated = db.updateSource(id, await body(req));
+        stage = 'flush-source-write';
         await db.flush();
         return json(res, 200, updated);
       }
+
       if (method === 'DELETE' && id) {
+        stage = 'delete-source';
         const deleted = db.deleteSource(id);
         if (!deleted) return json(res, 404, { error: 'Source not found.' });
+        stage = 'flush-source-write';
         await db.flush();
         return json(res, 200, { success: true });
       }
     }
 
     if (resource === 'settings') {
-      if (method === 'GET') return json(res, 200, db.getSettings());
+      if (method === 'GET') {
+        stage = 'read-settings';
+        return json(res, 200, db.getSettings());
+      }
+
       if (method === 'PUT' || method === 'PATCH' || method === 'POST') {
+        stage = 'update-settings';
         const updated = db.updateSettings(await body(req));
+        stage = 'flush-settings-write';
         await db.flush();
         return json(res, 200, updated);
       }
     }
 
     if (resource === 'logs' && method === 'GET') {
+      stage = 'read-logs';
       return json(res, 200, db.getLogs());
     }
 
     if (resource === 'comments') {
       if (method === 'GET') {
+        stage = 'read-comments';
         return json(
           res,
           200,
@@ -191,22 +247,26 @@ export default async function handler(req: any, res: any) {
           )
         );
       }
+
       if (method === 'POST') {
+        stage = 'create-comment';
         const clientIp = String(
           req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1'
         );
         const created = db.addComment((await body(req)) as any, clientIp);
+        stage = 'flush-comment-write';
         await db.flush();
         return json(res, 201, created);
       }
     }
 
     return json(res, 405, { error: 'Unsupported resource or method.' });
-  } catch (error: any) {
-    console.error('[direct-data]', error);
+  } catch (error: unknown) {
+    console.error('[direct-data]', stage, error);
     return json(res, 503, {
-      error: error?.message || String(error),
       code: 'DIRECT_TURSO_DATA_FAILED',
+      stage,
+      error: normalizeError(error),
     });
   }
 }
