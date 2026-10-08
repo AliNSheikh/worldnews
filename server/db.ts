@@ -107,7 +107,7 @@ class NewsroomDatabase {
     if (!isPersistenceConfigured()) {
       this.lastHydratedAt = Date.now();
       this.persistenceError = process.env.VERCEL
-        ? 'Persistent storage is not configured in Vercel. APPWRITE_API_KEY is required.'
+        ? 'Persistent storage is not configured in Vercel. TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required.'
         : null;
       console.warn('[World News DB] Persistent storage is not configured; using in-memory data.');
       return;
@@ -187,7 +187,7 @@ class NewsroomDatabase {
   }> {
     if (!isPersistenceConfigured()) {
       throw new Error(
-        'Persistent storage is not configured. Add APPWRITE_API_KEY to the active Vercel Production environment and redeploy.'
+        'Persistent storage is not configured. Add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to the active Vercel Production environment and redeploy.'
       );
     }
 
