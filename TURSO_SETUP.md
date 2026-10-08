@@ -69,13 +69,18 @@ GOOGLE_SITE_VERIFICATION="..."
 
 ## 5. Hourly crawler
 
-The project cron is configured as:
+The repository includes `.github/workflows/hourly-crawler.yml`, which calls the protected crawler endpoint once per hour:
 
 ```
-0 * * * *
+/api/cron/hourly
 ```
 
-The endpoint is `/api/cron/hourly`. It requires:
+Configure these GitHub repository values under **Settings → Secrets and variables → Actions**:
+
+- Secret: `CRON_SECRET` — use the exact same value configured in Vercel.
+- Variable: `NEWS_DISCOVER_URL` — for example `https://www.newsdiscover.org`. If omitted, the workflow defaults to that production URL.
+
+The endpoint requires:
 
 ```
 Authorization: Bearer YOUR_CRON_SECRET
@@ -87,7 +92,7 @@ Each run:
 - prevents duplicate imports;
 - imports at most the configured **Articles Per Source Per Hour** value for every active source.
 
-If the hosting plan cannot execute hourly cron jobs, use an external scheduler to call the same protected endpoint once per hour.
+The project intentionally does not use a Vercel hourly cron because Vercel Hobby plans reject schedules that execute more than once per day. If you later move to a plan that supports hourly cron jobs, the same protected endpoint can also be scheduled directly from Vercel.
 
 ## 6. Verify after deployment
 
