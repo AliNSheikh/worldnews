@@ -138,7 +138,7 @@ export function App() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch('/api/categories');
+      const res = await fetch('/api/categories', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setCategories(data);
@@ -148,7 +148,7 @@ export function App() {
 
   const fetchSources = useCallback(async () => {
     try {
-      const res = await fetch('/api/sources');
+      const res = await fetch('/api/sources', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setSources(data);
@@ -158,7 +158,7 @@ export function App() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch('/api/settings');
+      const res = await fetch('/api/settings', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setSettings(data);
@@ -168,7 +168,7 @@ export function App() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await fetch('/api/logs');
+      const res = await fetch('/api/logs', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setLogs(data);
@@ -252,6 +252,23 @@ export function App() {
           setIsAdminOpen(false);
           return;
         }
+
+        fetch('/api/articles/' + encodeURIComponent(slug), { cache: 'no-store' })
+          .then(async (response) => {
+            if (!response.ok) return null;
+            return (await response.json()) as Article;
+          })
+          .then((article) => {
+            if (!article) return;
+            setActiveArticle(article);
+            setArticles((current) =>
+              current.some((item) => item.id === article.id) ? current : [article, ...current]
+            );
+            setSelectedCategory('all');
+            setIsAdminOpen(false);
+          })
+          .catch(() => {});
+        return;
       } else if (normalized[0] === 'category' && normalized[1]) {
         setSelectedCategory(normalized[1]);
         setActiveArticle(null);
