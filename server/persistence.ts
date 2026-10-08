@@ -64,8 +64,8 @@ async function selectPayloads<T>(key: keyof typeof tableMap): Promise<T[]> {
   const db = getTursoClient();
   const result = await db.execute(`SELECT payload FROM ${tableMap[key]}`);
   return result.rows
-    .map((row) => parsePayload<T>(row.payload))
-    .filter((row): row is T => Boolean(row));
+    .map((row: Record<string, unknown>) => parsePayload<T>(row.payload))
+    .filter((row: T | null): row is T => Boolean(row));
 }
 
 async function upsertPayload(
