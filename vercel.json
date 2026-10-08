@@ -119,11 +119,5 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/hourly",
-      "schedule": "0 * * * *"
-    }
   ]
 }
