@@ -556,7 +556,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-white">Source-direct publishing mode</h3>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Automated imports no longer depend on Gemini. News Discover stores source-derived headline, article text, original image metadata, publication date, and automatically generated SEO title/description in Appwrite. Use the search box below to find any article, then edit or delete it directly.
+                    News Discover stores fetched article content, source metadata, publication dates, and SEO fields directly in Turso. Use the search box and filters below to find, edit, or delete any stored article.
                   </p>
                 </div>
               </div>
@@ -914,7 +914,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-3xl">
-                    An Appwrite scheduled function starts automatically every hour and keeps draining unseen RSS/Atom items in server-safe batches until the feeds are current. Each article is persisted to Appwrite with its original source image, English editorial content, and SEO metadata.
+                    A scheduled hourly crawler checks each active RSS/Atom source for stories published in the previous 60 minutes. Each source is capped by the control-panel limit, and imported articles are persisted directly to Turso.
                   </p>
                 </div>
 
@@ -959,7 +959,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="text-xl font-black text-slate-900">Every 60 Mins</div>
                 <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
                   <Check className="w-3 h-3" />
-                  <span>Appwrite scheduled function active</span>
+                  <span>Hourly scheduler + Turso persistence</span>
                 </div>
               </div>
 
