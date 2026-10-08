@@ -211,6 +211,7 @@ export function App() {
       document.head.appendChild(favicon);
     }
     if (settings.faviconImage) {
+      favicon.removeAttribute('type');
       favicon.href = settings.faviconImage;
     }
   }, [settings.faviconImage]);
