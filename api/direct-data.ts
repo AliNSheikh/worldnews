@@ -59,7 +59,8 @@ export default async function handler(req: any, res: any) {
 
     await db.refresh(5000);
 
-    if (method !== 'GET' && !isAdmin(req)) {
+    const publicCommentSubmission = resource === 'comments' && method === 'POST';
+    if (method !== 'GET' && !publicCommentSubmission && !isAdmin(req)) {
       return json(res, 401, { error: 'Administrator authentication required.' });
     }
 
