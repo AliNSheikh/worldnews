@@ -130,14 +130,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleRunCrawlerNow = async () => {
     setIsCrawlerRunning(true);
-    setCrawlerActionMessage('Starting full feed drain with no fixed article cap...');
+    setCrawlerActionMessage('Starting hourly-style crawl using the configured per-source article limit...');
     let total = 0;
     let cycles = 0;
     let hasMore = true;
     try {
       while (hasMore) {
         cycles += 1;
-        const res = await fetch('/api/crawler/run-now?batch=30', { method: 'POST' });
+        const res = await fetch('/api/crawler/run-now', { method: 'POST' });
         const raw = await res.text();
         let data: any = {};
         try {
@@ -151,7 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         total += Number(data.newArticlesCount || data.count || 0);
         hasMore = Boolean(data.hasMore);
         setCrawlerActionMessage(
-          `Batch ${cycles}: persisted ${data.count || 0} article(s). Total this manual run: ${total}.${hasMore ? ' Continuing automatically…' : ' Feed drain complete.'}`
+          `Batch ${cycles}: persisted ${data.count || 0} article(s). Total this manual run: ${total}.${hasMore ? ' Continuing automatically…' : ' Crawl cycle complete.'}`
         );
         if (hasMore) {
           await new Promise((resolve) => setTimeout(resolve, 500));
