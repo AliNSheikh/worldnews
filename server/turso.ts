@@ -16,7 +16,7 @@ export function isTursoConfigured(): boolean {
   return Boolean(TURSO_DATABASE_URL && TURSO_AUTH_TOKEN);
 }
 
-export function getTursoClient(): Client {
+export function getTursoClient(): ReturnType<typeof createClient> {
   if (!isTursoConfigured()) {
     throw new Error(
       'Turso is not configured. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the server environment.'
