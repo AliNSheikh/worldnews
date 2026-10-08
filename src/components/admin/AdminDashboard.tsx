@@ -69,6 +69,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
 
   // Modal editing state
   const [editingArticle, setEditingArticle] = useState<Partial<Article> | null>(null);
@@ -283,28 +285,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Filtered Articles
-  const filteredArticles = articles.filter((art) => {
-    if (categoryFilter !== 'all' && art.category !== categoryFilter) return false;
-    if (statusFilter !== 'all' && art.status !== statusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const match =
-        Object.values(art.translations).some(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            t.executiveSummary.toLowerCase().includes(q) ||
-            t.structuredBody.toLowerCase().includes(q) ||
-            t.metaDescription.toLowerCase().includes(q) ||
-            (t.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
-        ) ||
-        art.byline.toLowerCase().includes(q) ||
-        art.originalSource.toLowerCase().includes(q) ||
-        art.originalUrl.toLowerCase().includes(q);
-      if (!match) return false;
-    }
-    return true;
-  });
+  // Filtered & sorted articles
+  const filteredArticles = articles
+    .filter((art) => {
+      if (categoryFilter !== 'all' && art.category !== categoryFilter) return false;
+      if (statusFilter !== 'all' && art.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && art.originalSource !== sourceFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const match =
+          Object.values(art.translations).some(
+            (t) =>
+              t.title.toLowerCase().includes(q) ||
+              t.executiveSummary.toLowerCase().includes(q) ||
+              t.structuredBody.toLowerCase().includes(q) ||
+              t.metaDescription.toLowerCase().includes(q) ||
+              (t.keywords || []).some((keyword) => keyword.toLowerCase().includes(q))
+          ) ||
+          art.byline.toLowerCase().includes(q) ||
+          art.originalSource.toLowerCase().includes(q) ||
+          art.originalUrl.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.publishedAt).getTime();
+      const bTime = new Date(b.publishedAt).getTime();
+      return dateSort === 'newest' ? bTime - aTime : aTime - bTime;
+    });
 
   const handleSaveArticle = async (articleData: Partial<Article>) => {
     try {
@@ -590,6 +599,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <option value="review">Review</option>
                   <option value="draft">Draft</option>
                   <option value="archived">Archived</option>
+                </select>
+
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 max-w-[220px]"
+                  title="Filter articles by source"
+                >
+                  <option value="all">All Sources</option>
+                  {[...new Set(articles.map((article) => article.originalSource).filter(Boolean))]
+                    .sort((a, b) => a.localeCompare(b))
+                    .map((sourceName) => (
+                      <option key={sourceName} value={sourceName}>
+                        {sourceName}
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={dateSort}
+                  onChange={(e) => setDateSort(e.target.value as 'newest' | 'oldest')}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+                  title="Sort articles by publication date"
+                >
+                  <option value="newest">Newest → Oldest</option>
+                  <option value="oldest">Oldest → Newest</option>
                 </select>
 
                 <button
