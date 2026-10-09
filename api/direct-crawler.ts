@@ -41,9 +41,89 @@ function isAdmin(req: any): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function isCron(req: any): boolean {
+let githubJwksCache: { expiresAt: number; keys: any[] } = {
+  expiresAt: 0,
+  keys: [],
+};
+
+function decodeJwtPart(value: string): any {
+  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+}
+
+async function verifyGitHubSchedulerOidc(req: any): Promise<boolean> {
+  const marker = String(req.headers?.['x-newsdiscover-scheduler'] || '');
+  if (marker !== 'github-actions') return false;
+
+  const authorization = String(req.headers?.authorization || '');
+  if (!authorization.startsWith('Bearer ')) return false;
+  const token = authorization.slice(7).trim();
+
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+
+  try {
+    const header = decodeJwtPart(parts[0]);
+    const claims = decodeJwtPart(parts[1]);
+    const now = Math.floor(Date.now() / 1000);
+
+    if (header.alg !== 'RS256' || !header.kid) return false;
+    if (claims.iss !== 'https://token.actions.githubusercontent.com') return false;
+
+    const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (!audience.includes('newsdiscover.org')) return false;
+
+    if (claims.repository !== 'AliNSheikh/worldnews') return false;
+    if (claims.ref !== 'refs/heads/main') return false;
+    if (!['schedule', 'workflow_dispatch'].includes(String(claims.event_name || ''))) return false;
+
+    const expectedWorkflowRef =
+      'AliNSheikh/worldnews/.github/workflows/hourly-crawler.yml@refs/heads/main';
+    if (claims.workflow_ref !== expectedWorkflowRef) return false;
+
+    if (typeof claims.exp !== 'number' || claims.exp <= now) return false;
+    if (typeof claims.nbf === 'number' && claims.nbf > now + 30) return false;
+
+    if (githubJwksCache.expiresAt <= Date.now() || !githubJwksCache.keys.length) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch(
+          'https://token.actions.githubusercontent.com/.well-known/jwks',
+          {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+          }
+        );
+        if (!response.ok) return false;
+        const jwks: any = await response.json();
+        githubJwksCache = {
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          keys: Array.isArray(jwks.keys) ? jwks.keys : [],
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    const jwk = githubJwksCache.keys.find((key: any) => key.kid === header.kid);
+    if (!jwk) return false;
+
+    const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+    return crypto.verify(
+      'RSA-SHA256',
+      Buffer.from(parts[0] + '.' + parts[1]),
+      publicKey,
+      Buffer.from(parts[2], 'base64url')
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function isCron(req: any): Promise<boolean> {
   const secret = String(process.env.CRON_SECRET || '');
-  return Boolean(secret && req.headers?.authorization === 'Bearer ' + secret);
+  if (secret && req.headers?.authorization === 'Bearer ' + secret) return true;
+  return verifyGitHubSchedulerOidc(req);
 }
 
 function connection() {
@@ -439,9 +519,9 @@ export default async function handler(req: any, res: any) {
     const method = String(req.method || 'GET').toUpperCase();
 
     if (action === 'cron') {
-      if (!isCron(req)) {
-        return json(res, process.env.CRON_SECRET ? 401 : 503, {
-          error: process.env.CRON_SECRET ? 'Unauthorized cron request.' : 'CRON_SECRET is not configured.',
+      if (!(await isCron(req))) {
+        return json(res, 401, {
+          error: 'Unauthorized scheduled crawler request.',
         });
       }
     } else if (action !== 'status' && (method !== 'POST' || !isAdmin(req))) {
