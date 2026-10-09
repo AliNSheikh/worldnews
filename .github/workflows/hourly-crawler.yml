@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: news-discover-hourly-crawler
@@ -17,22 +18,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Run hourly crawler
+      - name: Run hourly crawler with GitHub OIDC
         env:
           SITE_URL: ${{ vars.NEWS_DISCOVER_URL || 'https://www.newsdiscover.org' }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
 
-          if [ -z "$CRON_SECRET" ]; then
-            echo "::error::Repository secret CRON_SECRET is not configured."
-            exit 1
-          fi
-
           SITE_URL="${SITE_URL%/}"
           RESPONSE_FILE="$(mktemp)"
+          OIDC_FILE="$(mktemp)"
 
-          HTTP_CODE="$(curl             --silent             --show-error             --location             --retry 2             --retry-delay 10             --max-time 300             --output "$RESPONSE_FILE"             --write-out "%{http_code}"             --header "Authorization: Bearer $CRON_SECRET"             --header "Accept: application/json"             "$SITE_URL/api/cron/hourly")"
+          curl             --fail-with-body             --silent             --show-error             --location             --max-time 30             --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=newsdiscover.org"             > "$OIDC_FILE"
+
+          OIDC_TOKEN="$(python - "$OIDC_FILE" <<'PY'
+          import json, sys
+          with open(sys.argv[1], "r", encoding="utf-8") as fh:
+              payload = json.load(fh)
+          token = payload.get("value")
+          if not token:
+              raise SystemExit("GitHub did not return an OIDC token.")
+          print(token)
+          PY
+          )"
+
+          HTTP_CODE="$(curl             --silent             --show-error             --location             --retry 2             --retry-delay 10             --max-time 300             --output "$RESPONSE_FILE"             --write-out "%{http_code}"             --header "Authorization: Bearer $OIDC_TOKEN"             --header "X-NewsDiscover-Scheduler: github-actions"             --header "Accept: application/json"             "$SITE_URL/api/cron/hourly")"
 
           cat "$RESPONSE_FILE"
           echo
@@ -44,8 +53,7 @@ jobs:
 
           python - "$RESPONSE_FILE" <<'PY'
           import json, sys
-          path = sys.argv[1]
-          with open(path, "r", encoding="utf-8") as fh:
+          with open(sys.argv[1], "r", encoding="utf-8") as fh:
               payload = json.load(fh)
 
           if payload.get("success") is False:
@@ -56,14 +64,14 @@ jobs:
           print(f"Hourly crawler success. Imported: {imported}. {message}")
           PY
 
-      - name: Verify new content is readable from site
+      - name: Verify published articles API
         env:
           SITE_URL: ${{ vars.NEWS_DISCOVER_URL || 'https://www.newsdiscover.org' }}
         run: |
           set -euo pipefail
           SITE_URL="${SITE_URL%/}"
 
-          curl             --fail-with-body             --silent             --show-error             --location             --retry 2             --retry-delay 5             --max-time 60             "$SITE_URL/api/articles?status=published&limit=1&offset=0&sort=newest"             >/tmp/latest-article.json
+          curl             --fail-with-body             --silent             --show-error             --location             --retry 2             --retry-delay 5             --max-time 60             "$SITE_URL/api/articles?status=published&limit=1&offset=0&sort=newest"             > /tmp/latest-article.json
 
           python - /tmp/latest-article.json <<'PY'
           import json, sys
@@ -74,13 +82,14 @@ jobs:
           print(f"Published article endpoint is healthy. Returned {len(payload)} item(s).")
           PY
 
-      - name: Refresh sitemap endpoint
+      - name: Verify sitemap
         env:
           SITE_URL: ${{ vars.NEWS_DISCOVER_URL || 'https://www.newsdiscover.org' }}
         run: |
           set -euo pipefail
           SITE_URL="${SITE_URL%/}"
-          curl             --fail-with-body             --silent             --show-error             --location             --retry 2             --retry-delay 5             --max-time 60             --header "Cache-Control: no-cache"             "$SITE_URL/sitemap.xml"             >/tmp/sitemap.xml
+
+          curl             --fail-with-body             --silent             --show-error             --location             --retry 2             --retry-delay 5             --max-time 60             --header "Cache-Control: no-cache"             "$SITE_URL/sitemap.xml"             > /tmp/sitemap.xml
 
           grep -q "<sitemapindex" /tmp/sitemap.xml
           echo "Sitemap endpoint is healthy."
