@@ -27,7 +27,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { Article, Category, LanguageCode, SiteSettings } from '../types';
+import { Article, ArticleImageAsset, Category, LanguageCode, SiteSettings } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { CommentsSection } from './CommentsSection';
 import { ArticleCard } from './ArticleCard';
@@ -66,7 +66,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const [videoMode, setVideoMode] = useState<'embed' | 'screenshot'>('embed');
   const galleryImages = useMemo(() => {
-    const assets = [
+    const assets: ArticleImageAsset[] = [
       ...(article.image
         ? [{ url: article.image, alt: trans.imageAlt || trans.title, source: 'primary' }]
         : []),
