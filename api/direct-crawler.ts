@@ -347,6 +347,18 @@ function extractPageImages(html: string, pageUrl: string, jsonLd: any[]) {
   return assets.slice(0, 24);
 }
 
+function collectMediaUrls(value: any): string[] {
+  if (!value) return [];
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(collectMediaUrls);
+  if (typeof value === 'object') {
+    const direct = value.url || value.contentUrl || value?.$?.url;
+    const nested = Object.values(value).flatMap(collectMediaUrls);
+    return [...(direct ? [String(direct)] : []), ...nested];
+  }
+  return [];
+}
+
 function extractFeedImages(item: any, pageUrl: string) {
   const assets: Array<{ url: string; alt?: string; caption?: string; source?: string }> = [];
   const seen = new Set<string>();
@@ -354,11 +366,11 @@ function extractFeedImages(item: any, pageUrl: string) {
   if (enclosure) addImage(assets, seen, enclosure, pageUrl, { source: 'rss-enclosure' });
 
   const mediaCandidates = [
-    item?.['media:content']?.url,
-    item?.['media:thumbnail']?.url,
-    item?.media?.content?.url,
-    item?.media?.thumbnail?.url,
-  ].filter(Boolean);
+    ...collectMediaUrls(item?.['media:content']),
+    ...collectMediaUrls(item?.['media:thumbnail']),
+    ...collectMediaUrls(item?.media?.content),
+    ...collectMediaUrls(item?.media?.thumbnail),
+  ];
   mediaCandidates.forEach((candidate) =>
     addImage(assets, seen, candidate, pageUrl, { source: 'rss-media' })
   );
@@ -435,7 +447,16 @@ async function fetchFeed(rssUrl: string) {
     });
     if (!response.ok) throw new Error('Feed returned HTTP ' + response.status);
     const xml = await response.text();
-    const parser = new Parser();
+    const parser = new Parser({
+      customFields: {
+        item: [
+          ['content:encoded', 'content:encoded'],
+          ['dc:description', 'dc:description'],
+          ['media:content', 'media:content', { keepArray: true }],
+          ['media:thumbnail', 'media:thumbnail', { keepArray: true }],
+        ],
+      },
+    });
     return await parser.parseString(xml);
   } finally {
     clearTimeout(timer);
