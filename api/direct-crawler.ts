@@ -4,7 +4,10 @@ import { createClient } from '@libsql/client';
 
 export const maxDuration = 60;
 const COOKIE = 'world_news_admin_session';
-const FRESH_WINDOW_MS = 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const MINIMUM_LOOKBACK_MS = HOUR_MS;
+const MAX_RECOVERY_LOOKBACK_MS = 12 * HOUR_MS;
+const SCHEDULE_GUARD_MS = 50 * 60 * 1000;
 
 function clean(value: string | undefined): string {
   return String(value || '').trim().replace(/^['"]+|['"]+$/g, '');
@@ -138,17 +141,257 @@ function parsePayload(value: unknown): any {
   return JSON.parse(String(value || '{}'));
 }
 
-function stripHtml(value: string): string {
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    nbsp: ' ',
+    quot: '"',
+    rsquo: "'",
+    lsquo: "'",
+    rdquo: '"',
+    ldquo: '"',
+    ndash: '-',
+    mdash: '—',
+    hellip: '…',
+  };
+
   return String(value || '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, ' ')
+    .replace(/&#(x?[0-9a-f]+);?/gi, (_match, code) => {
+      const base = String(code).toLowerCase().startsWith('x') ? 16 : 10;
+      const numeric = parseInt(base === 16 ? String(code).slice(1) : String(code), base);
+      return Number.isFinite(numeric) ? String.fromCodePoint(numeric) : _match;
+    })
+    .replace(/&([a-z]+);/gi, (match, name) => named[String(name).toLowerCase()] ?? match);
+}
+
+function normalizeExtractedText(value: string): string {
+  return decodeHtmlEntities(value)
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+'\s*(s|d|m|t|re|ve|ll)\b/gi, "'$1")
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/([([{])\s+/g, '$1')
+    .replace(/\s+([)\]}])/g, '$1')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
     .trim();
+}
+
+function stripHtml(value: string): string {
+  const withBlockSpacing = String(value || '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<\/?(?:article|aside|blockquote|br|div|figcaption|figure|footer|h[1-6]|header|li|main|nav|p|section|table|td|th|tr|ul|ol)\b[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, '');
+  return normalizeExtractedText(withBlockSpacing);
+}
+
+function parseTagAttributes(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const pattern = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(tag))) {
+    attrs[match[1].toLowerCase()] = decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return attrs;
+}
+
+function extractMetaContent(html: string, names: string[]): string {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  const metaTags = html.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of metaTags) {
+    const attrs = parseTagAttributes(tag);
+    const key = String(attrs.property || attrs.name || attrs.itemprop || '').toLowerCase();
+    if (wanted.has(key) && attrs.content) return normalizeExtractedText(attrs.content);
+  }
+  return '';
+}
+
+function absoluteUrl(candidate: string, pageUrl: string): string {
+  const raw = decodeHtmlEntities(String(candidate || '').trim());
+  if (!raw || /^(?:data|blob|javascript):/i.test(raw)) return '';
+  try {
+    return new URL(raw, pageUrl).toString();
+  } catch {
+    return '';
+  }
+}
+
+function imageKey(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    ['w', 'width', 'h', 'height', 'q', 'quality', 'fit', 'crop', 'format', 'fm']
+      .forEach((key) => url.searchParams.delete(key));
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function addImage(
+  assets: Array<{ url: string; alt?: string; caption?: string; source?: string }>,
+  seen: Set<string>,
+  rawUrl: string,
+  pageUrl: string,
+  details: { alt?: string; caption?: string; source?: string } = {}
+) {
+  const url = absoluteUrl(rawUrl, pageUrl);
+  if (!url || !/^https?:\/\//i.test(url)) return;
+  const key = imageKey(url);
+  if (seen.has(key)) return;
+  seen.add(key);
+  assets.push({
+    url,
+    alt: normalizeExtractedText(details.alt || ''),
+    caption: normalizeExtractedText(details.caption || ''),
+    source: details.source || 'source-page',
+  });
+}
+
+function extractJsonLd(html: string): any[] {
+  const blocks = html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || [];
+  const values: any[] = [];
+  for (const block of blocks) {
+    const raw = block.replace(/^<script\b[^>]*>/i, '').replace(/<\/script>$/i, '').trim();
+    try {
+      const parsed = JSON.parse(decodeHtmlEntities(raw));
+      const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
+      while (queue.length) {
+        const item = queue.shift();
+        if (!item || typeof item !== 'object') continue;
+        values.push(item);
+        if (Array.isArray(item['@graph'])) queue.push(...item['@graph']);
+      }
+    } catch {}
+  }
+  return values;
+}
+
+function extractJsonLdImageValues(value: any): string[] {
+  if (!value) return [];
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(extractJsonLdImageValues);
+  if (typeof value === 'object') {
+    return [value.url, value.contentUrl, value.thumbnailUrl]
+      .filter(Boolean)
+      .flatMap(extractJsonLdImageValues);
+  }
+  return [];
+}
+
+function extractPageImages(html: string, pageUrl: string, jsonLd: any[]) {
+  const assets: Array<{ url: string; alt?: string; caption?: string; source?: string }> = [];
+  const seen = new Set<string>();
+
+  const metaTags = html.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of metaTags) {
+    const attrs = parseTagAttributes(tag);
+    const key = String(attrs.property || attrs.name || attrs.itemprop || '').toLowerCase();
+    if (['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src', 'image'].includes(key)) {
+      addImage(assets, seen, attrs.content || '', pageUrl, { source: 'metadata' });
+    }
+  }
+
+  for (const item of jsonLd) {
+    for (const candidate of extractJsonLdImageValues(item.image || item.thumbnailUrl)) {
+      addImage(assets, seen, candidate, pageUrl, {
+        alt: item.headline || item.name || '',
+        source: 'structured-data',
+      });
+    }
+  }
+
+  const imageTags = html.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imageTags) {
+    const attrs = parseTagAttributes(tag);
+    const width = Number(attrs.width || 0);
+    const height = Number(attrs.height || 0);
+    if ((width && width < 160) || (height && height < 120)) continue;
+
+    const candidates = [
+      attrs.src,
+      attrs['data-src'],
+      attrs['data-lazy-src'],
+      attrs['data-original'],
+    ].filter(Boolean) as string[];
+
+    const srcset = attrs.srcset || attrs['data-srcset'] || '';
+    if (srcset) {
+      const largest = srcset
+        .split(',')
+        .map((part) => part.trim().split(/\s+/))
+        .filter((part) => part[0])
+        .sort((a, b) => {
+          const aw = Number(String(a[1] || '').replace(/\D/g, '')) || 0;
+          const bw = Number(String(b[1] || '').replace(/\D/g, '')) || 0;
+          return bw - aw;
+        })[0]?.[0];
+      if (largest) candidates.unshift(largest);
+    }
+
+    for (const candidate of candidates) {
+      addImage(assets, seen, candidate, pageUrl, {
+        alt: attrs.alt || attrs.title || '',
+        source: 'article-body',
+      });
+      break;
+    }
+  }
+
+  return assets.slice(0, 24);
+}
+
+function extractFeedImages(item: any, pageUrl: string) {
+  const assets: Array<{ url: string; alt?: string; caption?: string; source?: string }> = [];
+  const seen = new Set<string>();
+  const enclosure = item?.enclosure?.url;
+  if (enclosure) addImage(assets, seen, enclosure, pageUrl, { source: 'rss-enclosure' });
+
+  const mediaCandidates = [
+    item?.['media:content']?.url,
+    item?.['media:thumbnail']?.url,
+    item?.media?.content?.url,
+    item?.media?.thumbnail?.url,
+  ].filter(Boolean);
+  mediaCandidates.forEach((candidate) =>
+    addImage(assets, seen, candidate, pageUrl, { source: 'rss-media' })
+  );
+
+  const html = String(
+    item?.['content:encoded'] || item?.content || item?.summary || item?.description || ''
+  );
+  for (const tag of html.match(/<img\b[^>]*>/gi) || []) {
+    const attrs = parseTagAttributes(tag);
+    const candidate = attrs.src || attrs['data-src'] || '';
+    addImage(assets, seen, candidate, pageUrl, {
+      alt: attrs.alt || '',
+      source: 'rss-content',
+    });
+  }
+
+  return assets;
+}
+
+function extractFeedDescription(item: any): string {
+  const candidates = [
+    item?.contentSnippet,
+    item?.summary,
+    item?.description,
+    item?.['dc:description'],
+    item?.content,
+    item?.['content:encoded'],
+  ];
+  for (const value of candidates) {
+    const cleaned = stripHtml(String(value || ''));
+    if (cleaned.length >= 40) return cleaned;
+  }
+  return '';
 }
 
 function slugify(value: string): string {
@@ -179,14 +422,6 @@ function itemDate(item: any): number {
   return Number.isFinite(ts) ? ts : 0;
 }
 
-function pickFeedImage(item: any): string {
-  const enclosure = item?.enclosure?.url;
-  if (enclosure && /\.(?:jpe?g|png|webp)(?:\?|$)/i.test(enclosure)) return enclosure;
-  const text = String(item?.content || item?.['content:encoded'] || item?.summary || item?.description || '');
-  const match = text.match(/<img[^>]+src=["']([^"']+)["']/i);
-  return match ? match[1] : '';
-}
-
 async function fetchFeed(rssUrl: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 9000);
@@ -209,7 +444,7 @@ async function fetchFeed(rssUrl: string) {
 
 async function fetchPageMetadata(url: string) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(url, {
       headers: {
@@ -219,21 +454,53 @@ async function fetchPageMetadata(url: string) {
       signal: controller.signal,
       redirect: 'follow',
     });
-    if (!response.ok) return { description: '', image: '', articleText: '' };
-    const html = (await response.text()).slice(0, 800000);
+
+    if (!response.ok) {
+      return {
+        description: '',
+        images: [] as Array<{ url: string; alt?: string; caption?: string; source?: string }>,
+        articleText: '',
+      };
+    }
+
+    const html = (await response.text()).slice(0, 1_500_000);
+    const jsonLd = extractJsonLd(html);
+
+    const structuredDescription = jsonLd
+      .map((item) => normalizeExtractedText(String(item.description || item.abstract || '')))
+      .find((value) => value.length >= 40) || '';
+
     const description =
-      html.match(/<meta[^>]+(?:property|name)=["'](?:og:description|description)["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:description|description)["']/i)?.[1] ||
+      extractMetaContent(html, ['og:description']) ||
+      extractMetaContent(html, ['twitter:description']) ||
+      extractMetaContent(html, ['description']) ||
+      extractMetaContent(html, ['dc.description']) ||
+      structuredDescription;
+
+    const structuredBody = jsonLd
+      .map((item) => stripHtml(String(item.articleBody || item.text || '')))
+      .find((value) => value.length >= 100) || '';
+
+    const articleBlock =
+      html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] ||
+      html.match(/<(?:main|section|div)\b[^>]*(?:itemprop=["']articleBody["']|class=["'][^"']*(?:article-body|story-body|post-content|entry-content)[^"']*["'])[^>]*>([\s\S]*?)<\/(?:main|section|div)>/i)?.[1] ||
       '';
-    const image =
-      html.match(/<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i)?.[1] ||
-      '';
-    const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] || '';
-    const articleText = stripHtml(article || html).slice(0, 12000);
-    return { description: stripHtml(description), image, articleText };
+
+    const articleText = normalizeExtractedText(
+      (structuredBody || stripHtml(articleBlock) || stripHtml(html)).slice(0, 16000)
+    );
+
+    return {
+      description: normalizeExtractedText(description),
+      images: extractPageImages(html, url, jsonLd),
+      articleText,
+    };
   } catch {
-    return { description: '', image: '', articleText: '' };
+    return {
+      description: '',
+      images: [] as Array<{ url: string; alt?: string; caption?: string; source?: string }>,
+      articleText: '',
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -319,11 +586,54 @@ async function generateEditorial(title: string, description: string, body: strin
   }
 }
 
-async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) {
+async function latestAutomatedRunAt(db: ReturnType<typeof createClient>): Promise<number | null> {
+  const result = await db.execute('SELECT payload FROM newsroom_logs ORDER BY id DESC LIMIT 100');
+  const timestamps = result.rows
+    .map((row: any) => {
+      try {
+        return parsePayload(row.payload);
+      } catch {
+        return null;
+      }
+    })
+    .filter((log: any) => log?.source === 'Hourly Automated AI Wire Retrieval Engine')
+    .map((log: any) => new Date(log.completedAt || log.startedAt || 0).getTime())
+    .filter((timestamp: number) => Number.isFinite(timestamp) && timestamp > 0);
+
+  return timestamps.length ? Math.max(...timestamps) : null;
+}
+
+async function scheduledRunDecision(db: ReturnType<typeof createClient>) {
+  const lastRunAt = await latestAutomatedRunAt(db);
+  if (!lastRunAt) return { shouldRun: true, lastRunAt: null, elapsedMs: null };
+
+  const elapsedMs = Date.now() - lastRunAt;
+  return {
+    shouldRun: elapsedMs >= SCHEDULE_GUARD_MS,
+    lastRunAt,
+    elapsedMs,
+  };
+}
+
+async function recoveryLookbackMs(db: ReturnType<typeof createClient>, scheduled: boolean) {
+  if (!scheduled) return MINIMUM_LOOKBACK_MS;
+  const lastRunAt = await latestAutomatedRunAt(db);
+  if (!lastRunAt) return 2 * HOUR_MS;
+  const elapsed = Math.max(0, Date.now() - lastRunAt);
+  return Math.min(
+    MAX_RECOVERY_LOOKBACK_MS,
+    Math.max(MINIMUM_LOOKBACK_MS, elapsed + 15 * 60 * 1000)
+  );
+}
+
+async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, scheduled = false) {
   const startedAt = new Date().toISOString();
   const settingsResult = await db.execute("SELECT payload FROM newsroom_settings WHERE id = 'default' LIMIT 1");
   const settings = settingsResult.rows.length ? parsePayload(settingsResult.rows[0].payload) : {};
   const perSourceLimit = Math.max(1, Math.min(20, Number(settings.articlesPerSourcePerHour || 3)));
+  const lookbackMs = await recoveryLookbackMs(db, scheduled);
+  const recoveryHours = Math.max(1, Math.ceil(lookbackMs / HOUR_MS));
+  const effectivePerSourceLimit = Math.min(40, perSourceLimit * recoveryHours);
 
   const sourceResult = sourceId
     ? await db.execute({ sql: 'SELECT payload FROM newsroom_sources WHERE id = ? LIMIT 1', args: [sourceId] })
@@ -361,10 +671,10 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) 
             if (!ts) return false;
             const age = Date.now() - ts;
             const link = String(item.link || '').trim();
-            return age >= 0 && age <= FRESH_WINDOW_MS && /^https?:\/\//i.test(link) && !existing.has(normalizeUrl(link));
+            return age >= 0 && age <= lookbackMs && /^https?:\/\//i.test(link) && !existing.has(normalizeUrl(link));
           })
           .sort((a: any, b: any) => itemDate(b) - itemDate(a))
-          .slice(0, perSourceLimit);
+          .slice(0, effectivePerSourceLimit);
         diagnostic.candidates = fresh.length;
         fresh.forEach((item: any) => candidates.push({ source, item, diagnostic }));
       } catch (error: any) {
@@ -387,11 +697,13 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) 
 
     try {
       const page = await fetchPageMetadata(originalUrl);
-      const feedDescription = stripHtml(
-        String(item.contentSnippet || item.content || item.summary || item.description || '')
+      const feedDescription = extractFeedDescription(item);
+      const description = normalizeExtractedText(
+        page.description || feedDescription || String(item.title || '')
       );
-      const description = (page.description || feedDescription || String(item.title || '')).trim();
-      const sourceText = (page.articleText || feedDescription || description).trim();
+      const sourceText = normalizeExtractedText(
+        page.articleText || feedDescription || description
+      );
 
       if (sourceText.length < 80) {
         diagnostic.error = diagnostic.error || 'Skipped because less than 80 characters of verifiable source text were available.';
@@ -409,7 +721,18 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) 
       const now = new Date().toISOString();
       const pubRaw = item.pubDate || item.isoDate || item.published || item.updated || now;
       const publishedAt = Number.isFinite(new Date(pubRaw).getTime()) ? new Date(pubRaw).toISOString() : now;
-      const image = page.image || pickFeedImage(item) || '';
+      const pageImages = Array.isArray(page.images) ? page.images : [];
+      const feedImages = extractFeedImages(item, originalUrl);
+      const mergedImages: Array<{ url: string; alt?: string; caption?: string; source?: string }> = [];
+      const imageSeen = new Set<string>();
+      [...pageImages, ...feedImages].forEach((asset) => {
+        if (!asset?.url) return;
+        const key = imageKey(asset.url);
+        if (imageSeen.has(key)) return;
+        imageSeen.add(key);
+        mergedImages.push(asset);
+      });
+      const image = mergedImages[0]?.url || '';
       const id = 'wire-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
       const article = {
         id,
@@ -420,6 +743,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) 
         originalDescription: description,
         officialImageUrl: image || undefined,
         image,
+        images: mergedImages,
         imageCredit: image ? 'Upstream editorial image' : 'News Discover',
         imageProvenance: image ? 'Extracted from source/feed metadata' : 'No source image available',
         imageLicense: image ? 'Upstream editorial media; verify publishing rights before monetized use' : 'Not applicable',
@@ -503,6 +827,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string) 
     sourceDiagnostics: diagnostics,
     persistenceProvider: 'turso',
     hasMore: false,
+    lookbackMinutes: Math.round(lookbackMs / 60000),
     message: imported
       ? 'Crawler persisted ' + imported + ' new article(s) directly to Turso.'
       : 'Crawler completed with no new articles from the last 60 minutes.',
@@ -570,7 +895,23 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, await runCycle(db, sourceId));
     }
 
-    if (action === 'run' || action === 'cron') {
+    if (action === 'cron') {
+      const decision = await scheduledRunDecision(db);
+      if (!decision.shouldRun) {
+        return json(res, 200, {
+          success: true,
+          skipped: true,
+          newArticlesCount: 0,
+          count: 0,
+          persistenceProvider: 'turso',
+          message: 'Hourly crawler already ran recently; this redundant scheduler trigger was safely skipped.',
+          lastRunAt: decision.lastRunAt ? new Date(decision.lastRunAt).toISOString() : null,
+        });
+      }
+      return json(res, 200, await runCycle(db, undefined, true));
+    }
+
+    if (action === 'run') {
       return json(res, 200, await runCycle(db));
     }
 
