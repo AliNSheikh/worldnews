@@ -25,6 +25,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   // Use video screenshot or reliable lead image
   const displayImage =
     article.image ||
+    article.images?.[0]?.url ||
     article.videoThumbnail ||
     'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
 

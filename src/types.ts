@@ -43,6 +43,13 @@ export interface ArticleTranslation {
   corrections?: string;
 }
 
+export interface ArticleImageAsset {
+  url: string;
+  alt?: string;
+  caption?: string;
+  source?: string;
+}
+
 export interface ArticleArchiveSnapshot {
   archiveId: string;
   archivedAt: string;
@@ -66,6 +73,7 @@ export interface Article {
   officialImageUrl?: string;
   archiveSnapshot?: ArticleArchiveSnapshot;
   image: string;
+  images?: ArticleImageAsset[];
   imageCredit: string;
   imageProvenance: string;
   imageLicense: string;

@@ -27,7 +27,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { Article, Category, LanguageCode, SiteSettings } from '../types';
+import { Article, ArticleImageAsset, Category, LanguageCode, SiteSettings } from '../types';
 import { TRANSLATIONS } from '../data/translations';
 import { CommentsSection } from './CommentsSection';
 import { ArticleCard } from './ArticleCard';
@@ -65,8 +65,28 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const [videoMode, setVideoMode] = useState<'embed' | 'screenshot'>('embed');
+  const galleryImages = useMemo(() => {
+    const assets: ArticleImageAsset[] = [
+      ...(article.image
+        ? [{ url: article.image, alt: trans.imageAlt || trans.title, source: 'primary' }]
+        : []),
+      ...(article.images || []),
+    ];
+
+    const seen = new Set<string>();
+    return assets.filter((asset) => {
+      const url = String(asset?.url || '').trim();
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    });
+  }, [article.id, article.image, article.images, trans.imageAlt, trans.title]);
+
   const [currentImage, setCurrentImage] = useState<string>(
-    article.image || article.videoThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80'
+    article.image ||
+      article.images?.[0]?.url ||
+      article.videoThumbnail ||
+      'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80'
   );
   const [currentCredit, setCurrentCredit] = useState(article.imageCredit);
   const [currentLicense, setCurrentLicense] = useState(article.imageLicense);
@@ -77,12 +97,15 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
 
   useEffect(() => {
     setCurrentImage(
-      article.image || article.videoThumbnail || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80'
+      article.image ||
+        article.images?.[0]?.url ||
+        article.videoThumbnail ||
+        'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80'
     );
     setCurrentCredit(article.imageCredit);
     setCurrentLicense(article.imageLicense);
     setCurrentProvenance(article.imageProvenance);
-  }, [article.id, article.image, article.videoThumbnail]);
+  }, [article.id, article.image, article.images, article.videoThumbnail]);
 
   const handleGenerateAiImage = async () => {
     setIsGeneratingAiImage(true);
@@ -546,6 +569,44 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
           </div>
         </div>
       </div>
+
+      {galleryImages.length > 1 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">
+            <ImageIcon className="w-4 h-4" />
+            <span>Article Images ({galleryImages.length})</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {galleryImages.map((asset, index) => (
+              <button
+                key={asset.url + index}
+                type="button"
+                onClick={() => setCurrentImage(asset.url)}
+                className={`group relative overflow-hidden rounded-lg border bg-slate-100 aspect-video cursor-pointer transition-all ${
+                  currentImage === asset.url
+                    ? 'border-sky-500 ring-2 ring-sky-100'
+                    : 'border-slate-200 hover:border-sky-300'
+                }`}
+                title={asset.caption || asset.alt || `Article image ${index + 1}`}
+              >
+                <img
+                  src={asset.url}
+                  alt={asset.alt || trans.imageAlt || trans.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => {
+                    event.currentTarget.closest('button')?.classList.add('hidden');
+                  }}
+                />
+                <span className="absolute bottom-1.5 end-1.5 rounded bg-slate-950/75 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {index + 1}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Editorial Standards Notice */}
       <div className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-start gap-3">
