@@ -2,7 +2,9 @@ name: Hourly News Discover Crawler
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # Three watchdog triggers per hour; the API guard allows only one real crawl per ~hour.
+    # Non-zero minutes avoid the busiest GitHub Actions scheduling window.
+    - cron: "11,31,51 * * * *"
   workflow_dispatch:
 
 permissions:
