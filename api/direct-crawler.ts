@@ -507,20 +507,21 @@ async function fetchPageMetadata(url: string) {
 }
 
 function fallbackEditorial(title: string, description: string, body: string) {
-  const summary = (description || body || title).slice(0, 450).trim();
-  const structuredBody = (body || description || title).slice(0, 7000).trim();
-  const words = title.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 3);
+  const cleanTitle = normalizeExtractedText(title);
+  const summary = normalizeExtractedText((description || body || cleanTitle).slice(0, 450));
+  const structuredBody = normalizeExtractedText((body || description || cleanTitle).slice(0, 7000));
+  const words = cleanTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 3);
   const keywords = [...new Set(words)].slice(0, 8);
   return {
-    title,
-    slug: slugify(title),
+    title: cleanTitle,
+    slug: slugify(cleanTitle),
     executiveSummary: summary,
     structuredBody,
-    seoTitle: title.slice(0, 65),
+    seoTitle: cleanTitle.slice(0, 65),
     metaDescription: summary.slice(0, 160),
     keywords,
     tags: keywords.slice(0, 5),
-    imageAlt: title,
+    imageAlt: cleanTitle,
     faq: [],
     entities: [],
   };
@@ -569,15 +570,15 @@ async function generateEditorial(title: string, description: string, body: strin
     const parsed = JSON.parse(raw.replace(/^\s*```json\s*|\s*```\s*$/g, '').trim());
     const fallback = fallbackEditorial(title, description, body);
     return {
-      title: String(parsed.title || fallback.title),
+      title: normalizeExtractedText(String(parsed.title || fallback.title)),
       slug: slugify(String(parsed.slug || parsed.title || fallback.slug)),
-      executiveSummary: String(parsed.executiveSummary || fallback.executiveSummary),
-      structuredBody: String(parsed.structuredBody || fallback.structuredBody),
-      seoTitle: String(parsed.seoTitle || parsed.title || fallback.seoTitle).slice(0, 70),
-      metaDescription: String(parsed.metaDescription || fallback.metaDescription).slice(0, 180),
+      executiveSummary: normalizeExtractedText(String(parsed.executiveSummary || fallback.executiveSummary)),
+      structuredBody: normalizeExtractedText(String(parsed.structuredBody || fallback.structuredBody)),
+      seoTitle: normalizeExtractedText(String(parsed.seoTitle || parsed.title || fallback.seoTitle)).slice(0, 70),
+      metaDescription: normalizeExtractedText(String(parsed.metaDescription || fallback.metaDescription)).slice(0, 180),
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean).slice(0, 12) : fallback.keywords,
       tags: Array.isArray(parsed.tags) ? parsed.tags.filter(Boolean).slice(0, 10) : fallback.tags,
-      imageAlt: String(parsed.imageAlt || parsed.title || fallback.imageAlt),
+      imageAlt: normalizeExtractedText(String(parsed.imageAlt || parsed.title || fallback.imageAlt)),
       faq: Array.isArray(parsed.faq) ? parsed.faq.slice(0, 5) : [],
       entities: Array.isArray(parsed.entities) ? parsed.entities.slice(0, 20) : [],
     };
@@ -711,7 +712,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
       }
 
       const editorial = await generateEditorial(
-        String(item.title || '').trim(),
+        normalizeExtractedText(String(item.title || '').trim()),
         description,
         sourceText,
         String(source.name || 'News Source'),
