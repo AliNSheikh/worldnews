@@ -260,7 +260,7 @@ function extractJsonLd(html: string): any[] {
   for (const block of blocks) {
     const raw = block.replace(/^<script\b[^>]*>/i, '').replace(/<\/script>$/i, '').trim();
     try {
-      const parsed = JSON.parse(decodeHtmlEntities(raw));
+      const parsed = JSON.parse(raw);
       const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
       while (queue.length) {
         const item = queue.shift();
@@ -285,7 +285,7 @@ function extractJsonLdImageValues(value: any): string[] {
   return [];
 }
 
-function extractPageImages(html: string, pageUrl: string, jsonLd: any[]) {
+function extractPageImages(html: string, pageUrl: string, jsonLd: any[], articleHtml = '') {
   const assets: Array<{ url: string; alt?: string; caption?: string; source?: string }> = [];
   const seen = new Set<string>();
 
@@ -307,7 +307,8 @@ function extractPageImages(html: string, pageUrl: string, jsonLd: any[]) {
     }
   }
 
-  const imageTags = html.match(/<img\b[^>]*>/gi) || [];
+  const imageScope = articleHtml || html;
+  const imageTags = imageScope.match(/<img\b[^>]*>/gi) || [];
   for (const tag of imageTags) {
     const attrs = parseTagAttributes(tag);
     const width = Number(attrs.width || 0);
@@ -511,9 +512,13 @@ async function fetchPageMetadata(url: string) {
       (structuredBody || stripHtml(articleBlock) || stripHtml(html)).slice(0, 16000)
     );
 
+    const resolvedDescription = normalizeExtractedText(
+      description || articleText.slice(0, 450)
+    );
+
     return {
-      description: normalizeExtractedText(description),
-      images: extractPageImages(html, url, jsonLd),
+      description: resolvedDescription,
+      images: extractPageImages(html, url, jsonLd, articleBlock),
       articleText,
     };
   } catch {
@@ -852,7 +857,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
     lookbackMinutes: Math.round(lookbackMs / 60000),
     message: imported
       ? 'Crawler persisted ' + imported + ' new article(s) directly to Turso.'
-      : 'Crawler completed with no new articles from the last 60 minutes.',
+      : 'Crawler completed with no new articles in the current retrieval window.',
     ranAt: completedAt,
   };
 }
