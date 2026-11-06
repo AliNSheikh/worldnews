@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { createClient } from '@libsql/client';
+import { submitPublishedArticleForIndexing } from './lib/search-indexing';
 
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';
@@ -364,6 +365,13 @@ export default async function handler(req: any, res: any) {
           sql: 'INSERT INTO newsroom_articles (id, original_url, category, status, published_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET original_url=excluded.original_url, category=excluded.category, status=excluded.status, published_at=excluded.published_at, updated_at=excluded.updated_at, payload=excluded.payload',
           args: [article.id, article.originalUrl || null, article.category || null, article.status || null, article.publishedAt || null, article.updatedAt || null, JSON.stringify(article)],
         });
+        if (article.status === 'published') {
+          try {
+            await submitPublishedArticleForIndexing(article);
+          } catch (indexError) {
+            console.warn('[article-indexing] create', indexError);
+          }
+        }
         return json(res, 201, article);
       }
 
@@ -376,6 +384,13 @@ export default async function handler(req: any, res: any) {
           sql: 'INSERT INTO newsroom_articles (id, original_url, category, status, published_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET original_url=excluded.original_url, category=excluded.category, status=excluded.status, published_at=excluded.published_at, updated_at=excluded.updated_at, payload=excluded.payload',
           args: [article.id, article.originalUrl || null, article.category || null, article.status || null, article.publishedAt || null, article.updatedAt || null, JSON.stringify(article)],
         });
+        if (article.status === 'published') {
+          try {
+            await submitPublishedArticleForIndexing(article);
+          } catch (indexError) {
+            console.warn('[article-indexing] update', indexError);
+          }
+        }
         return json(res, 200, article);
       }
 

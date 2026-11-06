@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Parser from 'rss-parser';
 import { createClient } from '@libsql/client';
+import { buildArticleUrls, submitUrlsForIndexing } from './lib/search-indexing';
 
 export const maxDuration = 60;
 const COOKIE = 'world_news_admin_session';
@@ -715,6 +716,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
   let imported = 0;
   let published = 0;
   let review = 0;
+  const publishedUrls: string[] = [];
 
   for (const candidate of candidates) {
     const { source, item, diagnostic } = candidate;
@@ -807,6 +809,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
         sql: 'INSERT INTO newsroom_articles (id, original_url, category, status, published_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
         args: [id, originalUrl, article.category, article.status, publishedAt, now, JSON.stringify(article)],
       });
+      publishedUrls.push(...buildArticleUrls(article));
       existing.add(normalized);
       imported += 1;
       published += 1;
@@ -824,6 +827,15 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
       });
     } catch (error: any) {
       diagnostic.error = error?.message || String(error);
+    }
+  }
+
+  let indexingResult: any = null;
+  if (publishedUrls.length) {
+    try {
+      indexingResult = await submitUrlsForIndexing(publishedUrls);
+    } catch (indexError: any) {
+      console.warn('[crawler-indexing]', indexError?.message || indexError);
     }
   }
 
@@ -855,6 +867,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
     persistenceProvider: 'turso',
     hasMore: false,
     lookbackMinutes: Math.round(lookbackMs / 60000),
+    indexing: indexingResult,
     message: imported
       ? 'Crawler persisted ' + imported + ' new article(s) directly to Turso.'
       : 'Crawler completed with no new articles in the current retrieval window.',

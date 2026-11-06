@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local Google service-account key (never commit)
+worldnews-513907-044216327ed2.json
