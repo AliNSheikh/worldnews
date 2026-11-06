@@ -171,35 +171,44 @@ async function submitGoogle(urls: string[]): Promise<SubmissionResult> {
 
   let submitted = 0;
   const errors: string[] = [];
+  const queue = [...urls];
+  const workerCount = Math.min(4, queue.length);
 
-  for (const url of urls) {
-    try {
-      const response = await fetchWithTimeout(
-        GOOGLE_INDEXING_URL,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + accessToken,
-            'Content-Type': 'application/json',
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (queue.length) {
+      const url = queue.shift();
+      if (!url) return;
+
+      try {
+        const response = await fetchWithTimeout(
+          GOOGLE_INDEXING_URL,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              url,
+              type: 'URL_UPDATED',
+            }),
           },
-          body: JSON.stringify({
-            url,
-            type: 'URL_UPDATED',
-          }),
-        },
-        12000
-      );
+          10000
+        );
 
-      if (response.ok) {
-        submitted += 1;
-      } else {
-        const detail = (await response.text()).slice(0, 500);
-        errors.push(url + ': HTTP ' + response.status + ' ' + detail);
+        if (response.ok) {
+          submitted += 1;
+        } else {
+          const detail = (await response.text()).slice(0, 500);
+          errors.push(url + ': HTTP ' + response.status + ' ' + detail);
+        }
+      } catch (error: any) {
+        errors.push(url + ': ' + (error?.message || String(error)));
       }
-    } catch (error: any) {
-      errors.push(url + ': ' + (error?.message || String(error)));
     }
-  }
+  });
+
+  await Promise.all(workers);
 
   return {
     service: 'google',
