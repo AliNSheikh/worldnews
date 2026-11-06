@@ -1,0 +1,88 @@
+name: Indexing API Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "api/test-indexing.ts"
+      - ".github/workflows/indexing-diagnostic.yml"
+      - "vercel.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test-indexing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Run live indexing diagnostic
+        env:
+          TEST_URL: https://www.newsdiscover.org/api/test-indexing
+        run: |
+          set -euo pipefail
+
+          RESPONSE_FILE="$(mktemp)"
+          SUCCESS=0
+
+          for ATTEMPT in $(seq 1 36); do
+            OIDC_FILE="$(mktemp)"
+
+            curl               --fail-with-body               --silent               --show-error               --location               --max-time 30               --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"               "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=newsdiscover.org"               > "$OIDC_FILE"
+
+            OIDC_TOKEN="$(python - "$OIDC_FILE" <<'PY'
+          import json, sys
+          with open(sys.argv[1], "r", encoding="utf-8") as fh:
+              payload = json.load(fh)
+          token = payload.get("value")
+          if not token:
+              raise SystemExit("GitHub did not return an OIDC token.")
+          print(token)
+          PY
+            )"
+
+            HTTP_CODE="$(curl               --silent               --show-error               --location               --max-time 60               --output "$RESPONSE_FILE"               --write-out "%{http_code}"               --header "Authorization: Bearer $OIDC_TOKEN"               --header "X-NewsDiscover-Indexing-Test: github-actions"               --header "Accept: application/json"               "$TEST_URL" || true)"
+
+            echo "Attempt $ATTEMPT HTTP $HTTP_CODE"
+            cat "$RESPONSE_FILE" || true
+            echo
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              if python - "$RESPONSE_FILE" <<'PY'
+          import json, sys
+          try:
+              with open(sys.argv[1], "r", encoding="utf-8") as fh:
+                  payload = json.load(fh)
+              ok = (
+                  isinstance(payload, dict)
+                  and "googleIndexing" in payload
+                  and "indexNow" in payload
+              )
+          except Exception:
+              ok = False
+          raise SystemExit(0 if ok else 1)
+          PY
+              then
+                SUCCESS=1
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          if [ "$SUCCESS" != "1" ]; then
+            echo "::error::Indexing diagnostic endpoint did not become ready with a valid JSON response."
+            exit 1
+          fi
+
+          echo "INDEXING_DIAGNOSTIC_JSON<<EOF" >> "$GITHUB_ENV"
+          cat "$RESPONSE_FILE" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+
+      - name: Print exact diagnostic summary
+        run: |
+          printf '%s\n' "$INDEXING_DIAGNOSTIC_JSON"
