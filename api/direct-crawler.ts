@@ -32,12 +32,40 @@ function buildPublishedArticleUrls(article: any): string[] {
 }
 
 async function submitUrlsForIndexingSafely(urls: string[]) {
+  if (!urls.length) return null;
+
+  const signingSecret = String(process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || '');
+  if (!signingSecret) {
+    console.warn('[crawler-indexing] skipped: admin signing secret is not configured.');
+    return null;
+  }
+
+  const origin = String(process.env.APP_URL || 'https://www.newsdiscover.org').trim().replace(/\/$/, '');
+  const body = JSON.stringify({ urls: [...new Set(urls)] });
+  const signature = crypto.createHmac('sha256', signingSecret).update(body).digest('hex');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const indexing = await import('./lib/search-indexing');
-    return await indexing.submitUrlsForIndexing(urls);
+    const response = await fetch(origin + '/api/indexing-publish', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-NewsDiscover-Indexing-Signature': signature,
+      },
+      body,
+      signal: controller.signal,
+    });
+    const payload: any = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn('[crawler-indexing] HTTP ' + response.status, payload);
+    }
+    return payload;
   } catch (indexError: any) {
     console.warn('[crawler-indexing]', indexError?.message || indexError);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
