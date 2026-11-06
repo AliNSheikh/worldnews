@@ -32,8 +32,20 @@ function siteOrigin() {
   return /^https?:\/\//i.test(configured) ? configured : DEFAULT_ORIGIN;
 }
 
-function todayUtc() {
-  return new Date().toISOString().slice(0, 10);
+function googleQuotaDatePacific(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return values.year + '-' + values.month + '-' + values.day;
+}
+
+function stateQuotaDate(googleDaily = {}) {
+  return String(googleDaily.quotaDatePacific || googleDaily.dateUtc || '');
 }
 
 function defaultState() {
@@ -41,7 +53,7 @@ function defaultState() {
     googleSubmittedUrls: [],
     indexNowSubmittedUrls: [],
     googleDaily: {
-      dateUtc: todayUtc(),
+      quotaDatePacific: googleQuotaDatePacific(),
       requestsAttempted: 0,
       successfulSubmissions: 0,
     },
@@ -69,11 +81,20 @@ function loadState() {
       },
     };
 
-    if (state.googleDaily.dateUtc !== todayUtc()) {
+    const currentQuotaDate = googleQuotaDatePacific();
+    const storedQuotaDate = stateQuotaDate(state.googleDaily);
+
+    if (storedQuotaDate !== currentQuotaDate) {
       state.googleDaily = {
-        dateUtc: todayUtc(),
+        quotaDatePacific: currentQuotaDate,
         requestsAttempted: 0,
         successfulSubmissions: 0,
+      };
+    } else {
+      state.googleDaily = {
+        quotaDatePacific: currentQuotaDate,
+        requestsAttempted: Number(state.googleDaily.requestsAttempted || 0),
+        successfulSubmissions: Number(state.googleDaily.successfulSubmissions || 0),
       };
     }
 
@@ -336,11 +357,19 @@ async function submitIndexNow(urls, state, origin) {
 }
 
 async function submitGoogle(urls, state) {
-  if (state.googleDaily.dateUtc !== todayUtc()) {
+  const currentQuotaDate = googleQuotaDatePacific();
+  if (stateQuotaDate(state.googleDaily) !== currentQuotaDate) {
     state.googleDaily = {
-      dateUtc: todayUtc(),
+      quotaDatePacific: currentQuotaDate,
       requestsAttempted: 0,
       successfulSubmissions: 0,
+    };
+    saveState(state);
+  } else if (!state.googleDaily.quotaDatePacific) {
+    state.googleDaily = {
+      quotaDatePacific: currentQuotaDate,
+      requestsAttempted: Number(state.googleDaily.requestsAttempted || 0),
+      successfulSubmissions: Number(state.googleDaily.successfulSubmissions || 0),
     };
     saveState(state);
   }
@@ -468,6 +497,7 @@ async function main() {
     indexNow,
     stateFile: path.relative(process.cwd(), STATE_FILE),
     googleBulkDailyLimit: GOOGLE_BULK_DAILY_LIMIT,
+    googleQuotaTimezone: 'America/Los_Angeles',
     googleDailyState: state.googleDaily,
     completedAt: new Date().toISOString(),
   };

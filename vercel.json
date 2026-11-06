@@ -84,6 +84,10 @@
       "destination": "/api/direct-health"
     },
     {
+      "source": "/api/indexing-publish",
+      "destination": "/api/indexing-publish"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index"
     },
