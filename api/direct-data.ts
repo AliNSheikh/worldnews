@@ -4,12 +4,66 @@ import { createClient } from '@libsql/client';
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';
 
+function indexingOrigin(): string {
+  const configured = String(process.env.APP_URL || '').trim().replace(/\/$/, '');
+  return /^https?:\/\//i.test(configured) ? configured : 'https://www.newsdiscover.org';
+}
+
+function publishedArticleUrls(article: any): string[] {
+  if (!article || article.status !== 'published') return [];
+  const origin = indexingOrigin();
+  const category = encodeURIComponent(String(article.category || 'world'));
+  const urls: string[] = [];
+
+  for (const [language, translation] of Object.entries(article.translations || {})) {
+    const value: any = translation;
+    const slug = String(value?.slug || '').trim();
+    if (!slug) continue;
+    if (value?.translationStatus && value.translationStatus !== 'complete') continue;
+    const route = language === 'en'
+      ? '/news/' + category + '/' + encodeURIComponent(slug)
+      : '/' + encodeURIComponent(language) + '/news/' + category + '/' + encodeURIComponent(slug);
+    urls.push(origin + route);
+  }
+
+  return [...new Set(urls)];
+}
+
 async function submitPublishedArticleIndexingSafely(article: any, context: string) {
+  const urls = publishedArticleUrls(article);
+  if (!urls.length) return null;
+
+  const signingSecret = String(process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || '');
+  if (!signingSecret) {
+    console.warn('[article-indexing] ' + context + ' skipped: admin signing secret is not configured.');
+    return null;
+  }
+
+  const body = JSON.stringify({ urls });
+  const signature = crypto.createHmac('sha256', signingSecret).update(body).digest('hex');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const indexing = await import('./lib/search-indexing');
-    await indexing.submitPublishedArticleForIndexing(article);
+    const response = await fetch(indexingOrigin() + '/api/indexing-publish', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-NewsDiscover-Indexing-Signature': signature,
+      },
+      body,
+      signal: controller.signal,
+    });
+    const payload: any = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn('[article-indexing] ' + context + ' HTTP ' + response.status, payload);
+    }
+    return payload;
   } catch (indexError) {
     console.warn('[article-indexing] ' + context, indexError);
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
