@@ -1,9 +1,17 @@
 import crypto from 'crypto';
 import { createClient } from '@libsql/client';
-import { submitPublishedArticleForIndexing } from './lib/search-indexing';
 
 export const maxDuration = 30;
 const COOKIE = 'world_news_admin_session';
+
+async function submitPublishedArticleIndexingSafely(article: any, context: string) {
+  try {
+    const indexing = await import('./lib/search-indexing');
+    await indexing.submitPublishedArticleForIndexing(article);
+  } catch (indexError) {
+    console.warn('[article-indexing] ' + context, indexError);
+  }
+}
 
 function clean(value: string | undefined): string {
   return String(value || '').trim().replace(/^['"]+|['"]+$/g, '');
@@ -366,11 +374,7 @@ export default async function handler(req: any, res: any) {
           args: [article.id, article.originalUrl || null, article.category || null, article.status || null, article.publishedAt || null, article.updatedAt || null, JSON.stringify(article)],
         });
         if (article.status === 'published') {
-          try {
-            await submitPublishedArticleForIndexing(article);
-          } catch (indexError) {
-            console.warn('[article-indexing] create', indexError);
-          }
+          await submitPublishedArticleIndexingSafely(article, 'create');
         }
         return json(res, 201, article);
       }
@@ -385,11 +389,7 @@ export default async function handler(req: any, res: any) {
           args: [article.id, article.originalUrl || null, article.category || null, article.status || null, article.publishedAt || null, article.updatedAt || null, JSON.stringify(article)],
         });
         if (article.status === 'published') {
-          try {
-            await submitPublishedArticleForIndexing(article);
-          } catch (indexError) {
-            console.warn('[article-indexing] update', indexError);
-          }
+          await submitPublishedArticleIndexingSafely(article, 'update');
         }
         return json(res, 200, article);
       }
