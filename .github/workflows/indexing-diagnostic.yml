@@ -5,7 +5,9 @@ on:
     branches:
       - main
     paths:
+      - "api/test-indexing.ts"
       - ".github/workflows/indexing-diagnostic.yml"
+      - "vercel.json"
   workflow_dispatch:
 
 permissions:
