@@ -289,16 +289,18 @@ export async function submitUrlsForIndexing(urls: string[]) {
     };
   }
 
-  const results = await Promise.all([
-    submitGoogle(normalized).catch((error: any) => ({
-      service: 'google' as const,
+  const results: SubmissionResult[] = await Promise.all([
+    submitGoogle(normalized).catch((error: any): SubmissionResult => ({
+      service: 'google',
       ok: false,
+      skipped: false,
       submitted: 0,
       error: error?.message || String(error),
     })),
-    submitIndexNow(normalized).catch((error: any) => ({
-      service: 'indexnow' as const,
+    submitIndexNow(normalized).catch((error: any): SubmissionResult => ({
+      service: 'indexnow',
       ok: false,
+      skipped: false,
       submitted: 0,
       error: error?.message || String(error),
     })),
