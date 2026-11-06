@@ -48,13 +48,113 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add scripts/indexing-state.json
+          cp scripts/indexing-state.json /tmp/local-indexing-state.json
 
-          if git diff --cached --quiet; then
-            echo "No indexing state changes to commit."
-            exit 0
-          fi
+          for attempt in 1 2 3; do
+            echo "Persist attempt $attempt/3"
 
-          git commit -m "Update bulk indexing state [skip ci]"
-          git pull --rebase origin main
-          git push origin HEAD:main
+            git fetch origin main
+
+            if git show origin/main:scripts/indexing-state.json > /tmp/remote-indexing-state.json 2>/dev/null; then
+              echo "Loaded remote indexing state."
+            else
+              echo '{}' > /tmp/remote-indexing-state.json
+            fi
+
+            node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          function readJson(file) {
+            try {
+              return JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch {
+              return {};
+            }
+          }
+
+          function unique(values) {
+            return [...new Set(Array.isArray(values) ? values.map(String).filter(Boolean) : [])];
+          }
+
+          const local = readJson('/tmp/local-indexing-state.json');
+          const remote = readJson('/tmp/remote-indexing-state.json');
+
+          const localDaily = local.googleDaily || {};
+          const remoteDaily = remote.googleDaily || {};
+          const localDate = String(localDaily.dateUtc || '');
+          const remoteDate = String(remoteDaily.dateUtc || '');
+
+          let googleDaily;
+          if (localDate && localDate === remoteDate) {
+            googleDaily = {
+              dateUtc: localDate,
+              requestsAttempted: Math.max(
+                Number(localDaily.requestsAttempted || 0),
+                Number(remoteDaily.requestsAttempted || 0)
+              ),
+              successfulSubmissions: Math.max(
+                Number(localDaily.successfulSubmissions || 0),
+                Number(remoteDaily.successfulSubmissions || 0)
+              ),
+            };
+          } else {
+            googleDaily = localDate >= remoteDate
+              ? {
+                  dateUtc: localDate,
+                  requestsAttempted: Number(localDaily.requestsAttempted || 0),
+                  successfulSubmissions: Number(localDaily.successfulSubmissions || 0),
+                }
+              : {
+                  dateUtc: remoteDate,
+                  requestsAttempted: Number(remoteDaily.requestsAttempted || 0),
+                  successfulSubmissions: Number(remoteDaily.successfulSubmissions || 0),
+                };
+          }
+
+          const localRun = String(local.lastRunAt || '');
+          const remoteRun = String(remote.lastRunAt || '');
+
+          const merged = {
+            googleSubmittedUrls: unique([
+              ...(remote.googleSubmittedUrls || []),
+              ...(local.googleSubmittedUrls || []),
+            ]),
+            indexNowSubmittedUrls: unique([
+              ...(remote.indexNowSubmittedUrls || []),
+              ...(local.indexNowSubmittedUrls || []),
+            ]),
+            googleDaily,
+            lastRunAt: localRun >= remoteRun ? localRun || remoteRun || null : remoteRun || localRun || null,
+          };
+
+          fs.writeFileSync(
+            '/tmp/merged-indexing-state.json',
+            JSON.stringify(merged, null, 2) + '\n',
+            'utf8'
+          );
+          NODE
+
+            git reset --hard origin/main
+            cp /tmp/merged-indexing-state.json scripts/indexing-state.json
+            cp /tmp/merged-indexing-state.json /tmp/local-indexing-state.json
+
+            git add scripts/indexing-state.json
+
+            if git diff --cached --quiet; then
+              echo "Indexing state is already up to date."
+              exit 0
+            fi
+
+            git commit -m "Update bulk indexing state [skip ci]"
+
+            if git push origin HEAD:main; then
+              echo "Indexing state persisted successfully."
+              exit 0
+            fi
+
+            echo "Push raced with another main update; retrying with the newest remote state."
+            sleep 2
+          done
+
+          echo "::error::Could not persist indexing state after 3 attempts."
+          exit 1
