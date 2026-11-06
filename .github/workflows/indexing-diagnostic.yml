@@ -5,9 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "api/test-indexing.ts"
       - ".github/workflows/indexing-diagnostic.yml"
-      - "vercel.json"
   workflow_dispatch:
 
 permissions:
@@ -17,23 +15,20 @@ permissions:
 jobs:
   test-indexing:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
-      - name: Run live indexing diagnostic
+      - name: Call live diagnostic once and print response
         env:
           TEST_URL: https://www.newsdiscover.org/api/test-indexing
         run: |
           set -euo pipefail
 
+          OIDC_FILE="$(mktemp)"
           RESPONSE_FILE="$(mktemp)"
-          SUCCESS=0
 
-          for ATTEMPT in $(seq 1 36); do
-            OIDC_FILE="$(mktemp)"
+          curl             --fail-with-body             --silent             --show-error             --location             --max-time 30             --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=newsdiscover.org"             > "$OIDC_FILE"
 
-            curl               --fail-with-body               --silent               --show-error               --location               --max-time 30               --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"               "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=newsdiscover.org"               > "$OIDC_FILE"
-
-            OIDC_TOKEN="$(python - "$OIDC_FILE" <<'PY'
+          OIDC_TOKEN="$(python - "$OIDC_FILE" <<'PY'
           import json, sys
           with open(sys.argv[1], "r", encoding="utf-8") as fh:
               payload = json.load(fh)
@@ -42,47 +37,34 @@ jobs:
               raise SystemExit("GitHub did not return an OIDC token.")
           print(token)
           PY
-            )"
+          )"
 
-            HTTP_CODE="$(curl               --silent               --show-error               --location               --max-time 60               --output "$RESPONSE_FILE"               --write-out "%{http_code}"               --header "Authorization: Bearer $OIDC_TOKEN"               --header "X-NewsDiscover-Indexing-Test: github-actions"               --header "Accept: application/json"               "$TEST_URL" || true)"
-
-            echo "Attempt $ATTEMPT HTTP $HTTP_CODE"
-            cat "$RESPONSE_FILE" || true
-            echo
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              if python - "$RESPONSE_FILE" <<'PY'
-          import json, sys
-          try:
-              with open(sys.argv[1], "r", encoding="utf-8") as fh:
-                  payload = json.load(fh)
-              ok = (
-                  isinstance(payload, dict)
-                  and "googleIndexing" in payload
-                  and "indexNow" in payload
-              )
-          except Exception:
-              ok = False
-          raise SystemExit(0 if ok else 1)
+          echo "Decoded OIDC claims (non-secret):"
+          python - "$OIDC_TOKEN" <<'PY'
+          import base64, json, sys
+          token = sys.argv[1]
+          payload = token.split('.')[1]
+          payload += '=' * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+          keep = {
+              k: claims.get(k)
+              for k in [
+                  "iss", "aud", "repository", "ref", "event_name",
+                  "workflow_ref", "job_workflow_ref", "exp", "nbf"
+              ]
+              if k in claims
+          }
+          print(json.dumps(keep, indent=2))
           PY
-              then
-                SUCCESS=1
-                break
-              fi
-            fi
 
-            sleep 10
-          done
+          HTTP_CODE="$(curl             --silent             --show-error             --location             --max-time 90             --output "$RESPONSE_FILE"             --write-out "%{http_code}"             --header "Authorization: Bearer $OIDC_TOKEN"             --header "X-NewsDiscover-Indexing-Test: github-actions"             --header "Accept: application/json"             "$TEST_URL" || true)"
 
-          if [ "$SUCCESS" != "1" ]; then
-            echo "::error::Indexing diagnostic endpoint did not become ready with a valid JSON response."
+          echo "Diagnostic HTTP status: $HTTP_CODE"
+          echo "Diagnostic response:"
+          cat "$RESPONSE_FILE" || true
+          echo
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Diagnostic endpoint returned HTTP $HTTP_CODE."
             exit 1
           fi
-
-          echo "INDEXING_DIAGNOSTIC_JSON<<EOF" >> "$GITHUB_ENV"
-          cat "$RESPONSE_FILE" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-
-      - name: Print exact diagnostic summary
-        run: |
-          printf '%s\n' "$INDEXING_DIAGNOSTIC_JSON"
