@@ -1,12 +1,11 @@
 import crypto from 'crypto';
-import { INDEXNOW_KEY } from './lib/search-indexing';
-
 export const maxDuration = 30;
 
 const COOKIE = 'world_news_admin_session';
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/indexing';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_PUBLISH_URL = 'https://indexing.googleapis.com/v3/urlNotifications:publish';
+const INDEXNOW_KEY = '37889c93b7a4871999be40b8144667bc';
 
 let githubJwksCache: { expiresAt: number; keys: any[] } = {
   expiresAt: 0,
