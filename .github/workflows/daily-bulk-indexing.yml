@@ -81,13 +81,13 @@ jobs:
 
           const localDaily = local.googleDaily || {};
           const remoteDaily = remote.googleDaily || {};
-          const localDate = String(localDaily.dateUtc || '');
-          const remoteDate = String(remoteDaily.dateUtc || '');
+          const localDate = String(localDaily.quotaDatePacific || localDaily.dateUtc || '');
+          const remoteDate = String(remoteDaily.quotaDatePacific || remoteDaily.dateUtc || '');
 
           let googleDaily;
           if (localDate && localDate === remoteDate) {
             googleDaily = {
-              dateUtc: localDate,
+              quotaDatePacific: localDate,
               requestsAttempted: Math.max(
                 Number(localDaily.requestsAttempted || 0),
                 Number(remoteDaily.requestsAttempted || 0)
@@ -100,12 +100,12 @@ jobs:
           } else {
             googleDaily = localDate >= remoteDate
               ? {
-                  dateUtc: localDate,
+                  quotaDatePacific: localDate,
                   requestsAttempted: Number(localDaily.requestsAttempted || 0),
                   successfulSubmissions: Number(localDaily.successfulSubmissions || 0),
                 }
               : {
-                  dateUtc: remoteDate,
+                  quotaDatePacific: remoteDate,
                   requestsAttempted: Number(remoteDaily.requestsAttempted || 0),
                   successfulSubmissions: Number(remoteDaily.successfulSubmissions || 0),
                 };
