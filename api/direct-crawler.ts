@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import Parser from 'rss-parser';
 import { createClient } from '@libsql/client';
-import { buildArticleUrls, submitUrlsForIndexing } from './lib/search-indexing';
 
 export const maxDuration = 60;
 const COOKIE = 'world_news_admin_session';
@@ -9,6 +8,38 @@ const HOUR_MS = 60 * 60 * 1000;
 const MINIMUM_LOOKBACK_MS = HOUR_MS;
 const MAX_RECOVERY_LOOKBACK_MS = 12 * HOUR_MS;
 const SCHEDULE_GUARD_MS = 50 * 60 * 1000;
+
+function buildPublishedArticleUrls(article: any): string[] {
+  if (!article || article.status !== 'published') return [];
+  const origin = String(process.env.APP_URL || 'https://www.newsdiscover.org').trim().replace(/\/$/, '');
+  const category = encodeURIComponent(String(article.category || 'world'));
+  const urls: string[] = [];
+
+  for (const [language, translation] of Object.entries(article.translations || {})) {
+    const value: any = translation;
+    const slug = String(value?.slug || '').trim();
+    if (!slug) continue;
+    if (value?.translationStatus && value.translationStatus !== 'complete') continue;
+
+    const path =
+      language === 'en'
+        ? '/news/' + category + '/' + encodeURIComponent(slug)
+        : '/' + encodeURIComponent(language) + '/news/' + category + '/' + encodeURIComponent(slug);
+    urls.push(origin + path);
+  }
+
+  return [...new Set(urls)];
+}
+
+async function submitUrlsForIndexingSafely(urls: string[]) {
+  try {
+    const indexing = await import('./lib/search-indexing');
+    return await indexing.submitUrlsForIndexing(urls);
+  } catch (indexError: any) {
+    console.warn('[crawler-indexing]', indexError?.message || indexError);
+    return null;
+  }
+}
 
 function clean(value: string | undefined): string {
   return String(value || '').trim().replace(/^['"]+|['"]+$/g, '');
@@ -809,7 +840,7 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
         sql: 'INSERT INTO newsroom_articles (id, original_url, category, status, published_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
         args: [id, originalUrl, article.category, article.status, publishedAt, now, JSON.stringify(article)],
       });
-      publishedUrls.push(...buildArticleUrls(article));
+      publishedUrls.push(...buildPublishedArticleUrls(article));
       existing.add(normalized);
       imported += 1;
       published += 1;
@@ -830,14 +861,9 @@ async function runCycle(db: ReturnType<typeof createClient>, sourceId?: string, 
     }
   }
 
-  let indexingResult: any = null;
-  if (publishedUrls.length) {
-    try {
-      indexingResult = await submitUrlsForIndexing(publishedUrls);
-    } catch (indexError: any) {
-      console.warn('[crawler-indexing]', indexError?.message || indexError);
-    }
-  }
+  const indexingResult = publishedUrls.length
+    ? await submitUrlsForIndexingSafely(publishedUrls)
+    : null;
 
   const completedAt = new Date().toISOString();
   const errors = diagnostics.map((d) => d.error).filter(Boolean);
