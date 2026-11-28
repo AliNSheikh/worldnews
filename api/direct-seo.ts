@@ -154,25 +154,8 @@ function rss(origin: string, articles: any[], settings: any): string {
     items.join('') + '</channel></rss>';
 }
 
-function robots(origin: string): string {
-  return [
-    'User-agent: *',
-    'Allow: /',
-    'Disallow: /admin',
-    'Disallow: /api/',
-    '',
-    'User-agent: Googlebot-News',
-    'Allow: /',
-    'Allow: /news-sitemap.xml',
-    'Disallow: /admin',
-    'Disallow: /api/',
-    '',
-    'Sitemap: ' + origin + '/sitemap.xml',
-    'Sitemap: ' + origin + '/post-sitemap.xml',
-    'Sitemap: ' + origin + '/category-sitemap.xml',
-    'Sitemap: ' + origin + '/news-sitemap.xml',
-    '',
-  ].join('\n');
+function robots(_origin: string): string {
+  return "# Default: all crawlers may access public content\nUser-agent: *\nAllow: /\nDisallow: /admin/\n\n# AI search / answer-engine crawlers (explicitly allowed)\nUser-agent: OAI-SearchBot\nAllow: /\n\nUser-agent: ChatGPT-User\nAllow: /\n\nUser-agent: GPTBot\nAllow: /\n\nUser-agent: ClaudeBot\nAllow: /\n\nUser-agent: Claude-SearchBot\nAllow: /\n\nUser-agent: Claude-User\nAllow: /\n\nUser-agent: PerplexityBot\nAllow: /\n\nUser-agent: Perplexity-User\nAllow: /\n\nUser-agent: Google-Extended\nAllow: /\n\nUser-agent: Applebot\nAllow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n\nUser-agent: Bingbot\nAllow: /\n\nUser-agent: CCBot\nAllow: /\n\nSitemap: https://www.newsdiscover.org/sitemap.xml\nSitemap: https://www.newsdiscover.org/news-sitemap.xml\n";
 }
 
 export default async function handler(req: any, res: any) {
